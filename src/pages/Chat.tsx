@@ -1,6 +1,6 @@
 
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SessionCard } from '@/components/SessionCard'
 import type { SessionState } from '@/components/SessionCard'
 import { listModels } from '@/lib/ollamaClient'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { PlusIcon, LayersIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { ActiveModelsModal } from '@/components/ActiveModelsModal'
-import { SendIcon } from 'lucide-react'
+import { SendIcon, SparklesIcon } from 'lucide-react'
 import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConfigModal'
 
 
@@ -18,6 +18,7 @@ const Chat = () => {
     const [models, setModels] = useState<OllamaModel[]>([])
     const [isLoadingModels, setIsLoadingModels] = useState(true)
     const [bulkSendSignal, setBulkSendSignal] = useState(0)
+    const [fillRandomSignal, setFillRandomSignal] = useState(0)
     const [inputStates, setInputStates] = useState<Record<string, boolean>>({})
 
     const [defaultConfig, setDefaultConfig] = useState<DefaultConfig>(() => {
@@ -60,7 +61,7 @@ const Chat = () => {
         return () => { mounted = false }
     }, [])
 
-    const handleAddSession = () => {
+    const handleAddSession = useCallback(() => {
         const newSession: SessionState = {
             id: nanoid(),
             model: defaultConfig.model || (models.length > 0 ? models[0].name : ''),
@@ -72,29 +73,33 @@ const Chat = () => {
             isGenerating: false,
         }
         setSessions((prev) => [...prev, newSession])
-    }
+    }, [defaultConfig, models])
 
-    const handleRemoveSession = (id: string) => {
+    const handleRemoveSession = useCallback((id: string) => {
         setSessions((prev) => prev.filter((s) => s.id !== id))
         setInputStates((prev) => {
             const next = { ...prev }
             delete next[id]
             return next
         })
-    }
+    }, [])
 
-    const handleBulkSend = () => {
+    const handleBulkSend = useCallback(() => {
         setBulkSendSignal((prev) => prev + 1)
-    }
+    }, [])
 
-    const handleInputUpdate = (id: string, hasValue: boolean) => {
+    const handleFillRandom = useCallback(() => {
+        setFillRandomSignal((prev) => prev + 1)
+    }, [])
+
+    const handleInputUpdate = useCallback((id: string, hasValue: boolean) => {
         setInputStates((prev) => {
             if (prev[id] === hasValue) return prev
             return { ...prev, [id]: hasValue }
         })
-    }
+    }, [])
 
-    const handleUpdateSession = (id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => {
+    const handleUpdateSession = useCallback((id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => {
         setSessions((prev) =>
             prev.map((session) => {
                 if (session.id === id) {
@@ -105,7 +110,7 @@ const Chat = () => {
                 return session
             })
         )
-    }
+    }, [])
 
     // Calculate global metrics if multiple are done
     const completedSessions = sessions.filter(s => s.stats && !s.isGenerating)
@@ -159,6 +164,18 @@ const Chat = () => {
 
                     <ActiveModelsModal />
 
+                    {sessions.length > 0 && (
+                        <Button
+                            onClick={handleFillRandom}
+                            size="sm"
+                            variant="ghost"
+                            className="gap-2 text-muted-foreground hover:text-primary transition-colors"
+                        >
+                            <SparklesIcon className="h-4 w-4" />
+                            Fill Empty
+                        </Button>
+                    )}
+
                     <DefaultConfigModal
                         config={defaultConfig}
                         models={models}
@@ -196,6 +213,7 @@ const Chat = () => {
                                 onRemove={handleRemoveSession}
                                 onInputUpdate={handleInputUpdate}
                                 bulkSendSignal={bulkSendSignal}
+                                fillRandomSignal={fillRandomSignal}
                             />
                         ))
                     )}

@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import {
     Message,
     MessageContent,
@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
 import { XIcon, Trash2Icon, PlayIcon, TimerIcon } from 'lucide-react'
+import { generateRandomPrompt } from '@/lib/dummy'
 
 export type ChatMessage = {
     id: string
@@ -55,12 +56,16 @@ interface SessionCardProps {
     onRemove: (id: string) => void
     onInputUpdate: (id: string, hasValue: boolean) => void
     bulkSendSignal: number
+    fillRandomSignal: number
 }
 
 function BulkReceiver({ signal, onSend }: { signal: number, onSend: (msg: PromptInputMessage) => void }) {
     const controller = usePromptInputController()
+    const lastProcessedSignal = useRef(0)
+
     useEffect(() => {
-        if (signal > 0) {
+        if (signal > lastProcessedSignal.current) {
+            lastProcessedSignal.current = signal
             const text = controller.textInput.value.trim()
             if (text) {
                 onSend({ text, files: [] })
@@ -80,7 +85,23 @@ function InputWatcher({ id, onUpdate }: { id: string, onUpdate: (id: string, has
     return null
 }
 
-export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal }: SessionCardProps) {
+function FillWatcher({ signal }: { signal: number }) {
+    const controller = usePromptInputController()
+    const lastProcessedSignal = useRef(0)
+
+    useEffect(() => {
+        if (signal > lastProcessedSignal.current) {
+            lastProcessedSignal.current = signal
+            const current = controller.textInput.value.trim()
+            if (!current) {
+                controller.textInput.setInput(generateRandomPrompt())
+            }
+        }
+    }, [signal, controller])
+    return null
+}
+
+export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal, fillRandomSignal }: SessionCardProps) {
     const scrollRef = useRef<HTMLDivElement>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -91,7 +112,7 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
         }
     }, [session.messages])
 
-    const handleSend = async (msg: PromptInputMessage) => {
+    const handleSend = useCallback(async (msg: PromptInputMessage) => {
         if (!msg.text.trim()) return
 
         const userMessage: ChatMessage = {
@@ -175,7 +196,6 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                 })
 
                 // Allow React to commit the batch and browser to paint when streaming locally very fast
-                // Local loopbacks can sometimes batch NDJSON stream reads perfectly synchronously.
                 if (chunkCount % 2 === 0) {
                     await new Promise(r => setTimeout(r, 0))
                 }
@@ -194,18 +214,18 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                 })
             }
         }
-    }
+    }, [session.id, session.messages, session.model, session.systemPromptId, session.personalityId, onUpdate])
 
-    const handleStop = () => {
+    const handleStop = useCallback(() => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
             onUpdate(session.id, { isGenerating: false })
         }
-    }
+    }, [session.id, onUpdate])
 
-    const handleClear = () => {
+    const handleClear = useCallback(() => {
         onUpdate(session.id, { messages: [], stats: undefined })
-    }
+    }, [session.id, onUpdate])
 
     return (
         <Card className="py-0 flex flex-col h-full w-[400px] shrink-0 overflow-hidden border-border/50 shadow-sm bg-card/50 backdrop-blur-sm">
@@ -320,6 +340,7 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                     <PromptInputProvider initialInput={session.initialPrompt}>
                         <BulkReceiver signal={bulkSendSignal} onSend={handleSend} />
                         <InputWatcher id={session.id} onUpdate={onInputUpdate} />
+                        <FillWatcher signal={fillRandomSignal} />
                         <PromptInput
                             className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"
                             onSubmit={handleSend}
