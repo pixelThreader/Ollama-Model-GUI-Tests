@@ -3,8 +3,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 
 const Layout = () => {
     return (
-        <div className="flex flex-col min-h-screen">
-            <header className="border-b bg-background">
+        <div className="flex flex-col h-screen overflow-hidden">
+            <header className="border-b bg-background z-50 shrink-0">
                 <div className="container mx-auto px-4 h-14 flex items-center gap-6">
                     {/* Nav links */}
                     <Link
@@ -33,7 +33,8 @@ const Layout = () => {
                 </div>
             </header>
 
-            <main className="flex-1 container mx-auto px-4 py-6">
+            {/* The main area must be positioned relative to allow absolute children like Chat overflow */}
+            <main className="flex-1 relative overflow-hidden">
                 <Outlet />
             </main>
         </div>
