@@ -8,6 +8,8 @@ import type { OllamaModel } from '@/lib/ollamaClient'
 import { Button } from '@/components/ui/button'
 import { PlusIcon, LayersIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
+import { ActiveModelsModal } from '@/components/ActiveModelsModal'
+
 
 const Chat = () => {
     const [sessions, setSessions] = useState<SessionState[]>([])
@@ -99,6 +101,8 @@ const Chat = () => {
                             )}
                         </div>
                     )}
+
+                    <ActiveModelsModal />
 
                     <Button
                         onClick={handleAddSession}

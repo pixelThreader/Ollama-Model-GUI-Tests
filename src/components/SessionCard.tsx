@@ -87,7 +87,6 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
             role: m.role,
             content: m.content,
         }))
-        history.push({ role: 'user', content: msg.text })
 
         onUpdate(session.id, {
             messages: [...session.messages, userMessage, initialAssistantMessage],
@@ -113,7 +112,9 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                 signal: abortControllerRef.current.signal,
             })
 
+            let chunkCount = 0
             for await (const chunk of stream) {
+                chunkCount++
                 if (chunk.done) {
                     onUpdate(session.id, (prev: SessionState) => ({
                         // The final chunk contains all the stats properties directly
@@ -130,19 +131,26 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                 if (chunk.thinking) finalThinking += chunk.thinking
 
                 // Stream updates if in 'stream' mode
-                if (session.mode === 'stream') {
-                    onUpdate(session.id, (prev: SessionState) => {
-                        const temp = [...prev.messages]
-                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                        if (lastIdx !== -1) {
-                            temp[lastIdx] = {
-                                ...temp[lastIdx],
-                                content: finalContent,
-                                thinking: finalThinking,
-                            }
+                onUpdate(session.id, (prev: SessionState) => {
+                    if (prev.mode === 'generate') {
+                        return {}
+                    }
+                    const temp = [...prev.messages]
+                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                    if (lastIdx !== -1) {
+                        temp[lastIdx] = {
+                            ...temp[lastIdx],
+                            content: finalContent,
+                            thinking: finalThinking,
                         }
-                        return { messages: temp }
-                    })
+                    }
+                    return { messages: temp }
+                })
+
+                // Allow React to commit the batch and browser to paint when streaming locally very fast
+                // Local loopbacks can sometimes batch NDJSON stream reads perfectly synchronously.
+                if (chunkCount % 2 === 0) {
+                    await new Promise(r => setTimeout(r, 0))
                 }
             }
         } catch (err: unknown) {
@@ -232,7 +240,7 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                         </SelectContent>
                     </Select>
                     <Select
-                        value={session.mode}
+                        value={session.mode || 'stream'}
                         onValueChange={(val: 'stream' | 'generate') => onUpdate(session.id, { mode: val })}
                     >
                         <SelectTrigger className="w-[100px] h-7 text-[11px]">

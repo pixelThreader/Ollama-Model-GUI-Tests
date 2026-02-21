@@ -1,5 +1,7 @@
 import { createRootRoute, Outlet, Link } from '@tanstack/react-router'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Toaster } from '@/components/ui/sonner'
+
 
 const Layout = () => {
     return (
@@ -37,6 +39,7 @@ const Layout = () => {
             <main className="flex-1 relative overflow-hidden">
                 <Outlet />
             </main>
+            <Toaster richColors position="top-right" />
         </div>
     )
 }

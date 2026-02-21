@@ -105,6 +105,23 @@ export interface OllamaModel {
     }
 }
 
+export interface RunningModel {
+    name: string
+    model: string
+    size: number
+    digest: string
+    details: {
+        parent_model: string
+        format: string
+        family: string
+        families: string[]
+        parameter_size: string
+        quantization_level: string
+    }
+    expires_at: string
+    size_vram: number
+}
+
 export interface ModelDetails {
     parameters: string
     license: string
@@ -389,6 +406,30 @@ export async function listModels(
     if (!res.ok) throw new Error(`Failed to list models (${res.status})`)
     const data = await res.json()
     return data.models ?? []
+}
+
+/** Fetch currently running (loaded in RAM/VRAM) models. */
+export async function listRunningModels(
+    signal?: AbortSignal,
+): Promise<RunningModel[]> {
+    const res = await fetch(`${OLLAMA_BASE}/api/ps`, { signal })
+    if (!res.ok) throw new Error(`Failed to list running models (${res.status})`)
+    const data = await res.json()
+    return data.models ?? []
+}
+
+/** Unload a model from memory. */
+export async function unloadModel(
+    model: string,
+    signal?: AbortSignal,
+): Promise<void> {
+    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, keep_alive: 0 }),
+        signal,
+    })
+    if (!res.ok) throw new Error(`Failed to unload model (${res.status})`)
 }
 
 /** Fetch detailed info about a specific model. */
