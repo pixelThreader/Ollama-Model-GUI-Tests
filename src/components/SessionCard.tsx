@@ -17,11 +17,6 @@ import {
     PromptInputFooter,
     PromptInputTools,
     PromptInputSubmit,
-    PromptInputSelect,
-    PromptInputSelectTrigger,
-    PromptInputSelectValue,
-    PromptInputSelectContent,
-    PromptInputSelectItem,
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { streamChat } from '@/lib/ollamaClient'
@@ -30,7 +25,7 @@ import { SYSTEM_PROMPTS, PERSONALITIES, systemPromptList, personalityList } from
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
-import { XIcon, Trash2Icon, SendIcon, PlayIcon, TimerIcon } from 'lucide-react'
+import { XIcon, Trash2Icon, PlayIcon, TimerIcon } from 'lucide-react'
 
 export type ChatMessage = {
     id: string
@@ -45,6 +40,7 @@ export type SessionState = {
     model: string
     systemPromptId: string
     personalityId: string
+    mode: 'stream' | 'generate'
     messages: ChatMessage[]
     stats?: StreamDoneStats
     isGenerating: boolean
@@ -120,11 +116,11 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
             for await (const chunk of stream) {
                 if (chunk.done) {
                     onUpdate(session.id, (prev: SessionState) => ({
-                        // Cast chunk to the returned type with stats
-                        stats: (chunk as any).stats as StreamDoneStats,
+                        // The final chunk contains all the stats properties directly
+                        stats: chunk as StreamDoneStats,
                         isGenerating: false,
                         messages: prev.messages.map((m: ChatMessage) =>
-                            m.id === assistantMsgId ? { ...m, isStreaming: false } : m
+                            m.id === assistantMsgId ? { ...m, isStreaming: false, content: finalContent, thinking: finalThinking } : m
                         )
                     }))
                     break
@@ -133,21 +129,24 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                 finalContent += chunk.content
                 if (chunk.thinking) finalThinking += chunk.thinking
 
-                // Update the last message
-                onUpdate(session.id, (prev: SessionState) => {
-                    const temp = [...prev.messages]
-                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                    if (lastIdx !== -1) {
-                        temp[lastIdx] = {
-                            ...temp[lastIdx],
-                            content: finalContent,
-                            thinking: finalThinking,
+                // Stream updates if in 'stream' mode
+                if (session.mode === 'stream') {
+                    onUpdate(session.id, (prev: SessionState) => {
+                        const temp = [...prev.messages]
+                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                        if (lastIdx !== -1) {
+                            temp[lastIdx] = {
+                                ...temp[lastIdx],
+                                content: finalContent,
+                                thinking: finalThinking,
+                            }
                         }
-                    }
-                    return { messages: temp }
-                })
+                        return { messages: temp }
+                    })
+                }
             }
-        } catch (e: any) {
+        } catch (err: unknown) {
+            const e = err as Error
             if (e.name !== 'AbortError') {
                 finalContent += '\n\n**Error:** ' + e.message
                 onUpdate(session.id, (prev: SessionState) => {
@@ -232,6 +231,18 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                             ))}
                         </SelectContent>
                     </Select>
+                    <Select
+                        value={session.mode}
+                        onValueChange={(val: 'stream' | 'generate') => onUpdate(session.id, { mode: val })}
+                    >
+                        <SelectTrigger className="w-[100px] h-7 text-[11px]">
+                            <SelectValue placeholder="Mode" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="stream" className="text-[11px]">Stream</SelectItem>
+                            <SelectItem value="generate" className="text-[11px]">Generate</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             </CardHeader>
 
@@ -273,7 +284,7 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                 <div className="w-full relative">
                     <PromptInputProvider>
                         <PromptInput
-                            className="bg-muted/50 border-0 focus-within:ring-1 focus-within:ring-primary/30 rounded-xl"
+                            className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"
                             onSubmit={handleSend}
                         >
                             <PromptInputBody>
@@ -282,39 +293,7 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                                 />
                             </PromptInputBody>
                             <PromptInputFooter>
-                                <PromptInputTools className="flex-1 w-full flex-wrap">
-                                    <PromptInputSelect
-                                        value={session.systemPromptId}
-                                        onValueChange={(val) => onUpdate(session.id, { systemPromptId: val })}
-                                    >
-                                        <PromptInputSelectTrigger className="h-7 text-[11px] w-[140px]">
-                                            <PromptInputSelectValue placeholder="Prompt" />
-                                        </PromptInputSelectTrigger>
-                                        <PromptInputSelectContent>
-                                            {systemPromptList.map((p) => (
-                                                <PromptInputSelectItem key={p.id} value={p.id} className="text-[11px]">
-                                                    {p.label}
-                                                </PromptInputSelectItem>
-                                            ))}
-                                        </PromptInputSelectContent>
-                                    </PromptInputSelect>
-
-                                    <PromptInputSelect
-                                        value={session.personalityId}
-                                        onValueChange={(val) => onUpdate(session.id, { personalityId: val })}
-                                    >
-                                        <PromptInputSelectTrigger className="h-7 text-[11px] w-[140px]">
-                                            <PromptInputSelectValue placeholder="Personality" />
-                                        </PromptInputSelectTrigger>
-                                        <PromptInputSelectContent>
-                                            {personalityList.map((p) => (
-                                                <PromptInputSelectItem key={p.id} value={p.id} className="text-[11px]">
-                                                    {p.label}
-                                                </PromptInputSelectItem>
-                                            ))}
-                                        </PromptInputSelectContent>
-                                    </PromptInputSelect>
-                                </PromptInputTools>
+                                <PromptInputTools className="flex-1 w-full" />
                                 <PromptInputSubmit
                                     status={session.isGenerating ? "streaming" : undefined}
                                     onStop={handleStop}

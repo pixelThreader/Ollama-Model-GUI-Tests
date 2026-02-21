@@ -33,12 +33,12 @@ const Chat = () => {
     }, [])
 
     const handleAddSession = () => {
-        const defaultModel = models.length > 0 ? models[0].name : ''
         const newSession: SessionState = {
             id: nanoid(),
-            model: defaultModel,
-            systemPromptId: 'general',
-            personalityId: 'neutral',
+            model: models.length > 0 ? models[0].name : '',
+            systemPromptId: 'default',
+            personalityId: 'default',
+            mode: 'stream',
             messages: [],
             isGenerating: false,
         }
