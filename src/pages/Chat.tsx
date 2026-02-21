@@ -9,12 +9,15 @@ import { Button } from '@/components/ui/button'
 import { PlusIcon, LayersIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { ActiveModelsModal } from '@/components/ActiveModelsModal'
+import { SendIcon } from 'lucide-react'
 
 
 const Chat = () => {
     const [sessions, setSessions] = useState<SessionState[]>([])
     const [models, setModels] = useState<OllamaModel[]>([])
     const [isLoadingModels, setIsLoadingModels] = useState(true)
+    const [bulkSendSignal, setBulkSendSignal] = useState(0)
+    const [inputStates, setInputStates] = useState<Record<string, boolean>>({})
 
     useEffect(() => {
         let mounted = true
@@ -49,6 +52,22 @@ const Chat = () => {
 
     const handleRemoveSession = (id: string) => {
         setSessions((prev) => prev.filter((s) => s.id !== id))
+        setInputStates((prev) => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+        })
+    }
+
+    const handleBulkSend = () => {
+        setBulkSendSignal((prev) => prev + 1)
+    }
+
+    const handleInputUpdate = (id: string, hasValue: boolean) => {
+        setInputStates((prev) => {
+            if (prev[id] === hasValue) return prev
+            return { ...prev, [id]: hasValue }
+        })
     }
 
     const handleUpdateSession = (id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => {
@@ -102,6 +121,18 @@ const Chat = () => {
                         </div>
                     )}
 
+                    {sessions.length > 1 && Object.values(inputStates).some(v => v) && (
+                        <Button
+                            onClick={handleBulkSend}
+                            size="sm"
+                            variant="outline"
+                            className="gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary transition-all shadow-sm"
+                        >
+                            <SendIcon className="h-4 w-4" />
+                            Bulk Send
+                        </Button>
+                    )}
+
                     <ActiveModelsModal />
 
                     <Button
@@ -133,6 +164,8 @@ const Chat = () => {
                                 models={models}
                                 onUpdate={handleUpdateSession}
                                 onRemove={handleRemoveSession}
+                                onInputUpdate={handleInputUpdate}
+                                bulkSendSignal={bulkSendSignal}
                             />
                         ))
                     )}

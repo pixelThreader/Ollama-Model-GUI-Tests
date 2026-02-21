@@ -17,6 +17,7 @@ import {
     PromptInputFooter,
     PromptInputTools,
     PromptInputSubmit,
+    usePromptInputController,
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { streamChat } from '@/lib/ollamaClient'
@@ -51,9 +52,34 @@ interface SessionCardProps {
     models: OllamaModel[]
     onUpdate: (id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => void
     onRemove: (id: string) => void
+    onInputUpdate: (id: string, hasValue: boolean) => void
+    bulkSendSignal: number
 }
 
-export function SessionCard({ session, models, onUpdate, onRemove }: SessionCardProps) {
+function BulkReceiver({ signal, onSend }: { signal: number, onSend: (msg: PromptInputMessage) => void }) {
+    const controller = usePromptInputController()
+    useEffect(() => {
+        if (signal > 0) {
+            const text = controller.textInput.value.trim()
+            if (text) {
+                onSend({ text, files: [] })
+                controller.textInput.clear()
+            }
+        }
+    }, [signal, onSend, controller])
+    return null
+}
+
+function InputWatcher({ id, onUpdate }: { id: string, onUpdate: (id: string, hasValue: boolean) => void }) {
+    const controller = usePromptInputController()
+    const value = controller.textInput.value
+    useEffect(() => {
+        onUpdate(id, value.trim().length > 0)
+    }, [id, value, onUpdate])
+    return null
+}
+
+export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal }: SessionCardProps) {
     const scrollRef = useRef<HTMLDivElement>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -291,6 +317,8 @@ export function SessionCard({ session, models, onUpdate, onRemove }: SessionCard
                 )}
                 <div className="w-full relative">
                     <PromptInputProvider>
+                        <BulkReceiver signal={bulkSendSignal} onSend={handleSend} />
+                        <InputWatcher id={session.id} onUpdate={onInputUpdate} />
                         <PromptInput
                             className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"
                             onSubmit={handleSend}
