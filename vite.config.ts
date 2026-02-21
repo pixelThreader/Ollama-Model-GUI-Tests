@@ -7,13 +7,16 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    // Please make sure that '@tanstack/router-plugin' is passed before '@vitejs/plugin-react'
     tanstackRouter({
       target: 'react',
       autoCodeSplitting: true,
+      routesDirectory: './src',
+      generatedRouteTree: './src/routeTree.gen.ts',
+      virtualRouteConfig: './src/routes.ts',
     }),
-    react(), 
-    tailwindcss()],
+    react(),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
