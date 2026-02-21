@@ -10,6 +10,7 @@ import { PlusIcon, LayersIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { ActiveModelsModal } from '@/components/ActiveModelsModal'
 import { SendIcon } from 'lucide-react'
+import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConfigModal'
 
 
 const Chat = () => {
@@ -18,6 +19,28 @@ const Chat = () => {
     const [isLoadingModels, setIsLoadingModels] = useState(true)
     const [bulkSendSignal, setBulkSendSignal] = useState(0)
     const [inputStates, setInputStates] = useState<Record<string, boolean>>({})
+
+    const [defaultConfig, setDefaultConfig] = useState<DefaultConfig>(() => {
+        const saved = localStorage.getItem('ollama_default_config')
+        if (saved) {
+            try {
+                return JSON.parse(saved)
+            } catch (e) {
+                console.error('Failed to parse default config', e)
+            }
+        }
+        return {
+            model: '',
+            systemPromptId: 'general',
+            personalityId: 'neutral',
+            mode: 'stream' as const,
+            prompt: '',
+        }
+    })
+
+    useEffect(() => {
+        localStorage.setItem('ollama_default_config', JSON.stringify(defaultConfig))
+    }, [defaultConfig])
 
     useEffect(() => {
         let mounted = true
@@ -40,10 +63,11 @@ const Chat = () => {
     const handleAddSession = () => {
         const newSession: SessionState = {
             id: nanoid(),
-            model: models.length > 0 ? models[0].name : '',
-            systemPromptId: 'default',
-            personalityId: 'default',
-            mode: 'stream',
+            model: defaultConfig.model || (models.length > 0 ? models[0].name : ''),
+            systemPromptId: defaultConfig.systemPromptId,
+            personalityId: defaultConfig.personalityId,
+            mode: defaultConfig.mode,
+            initialPrompt: defaultConfig.prompt,
             messages: [],
             isGenerating: false,
         }
@@ -134,6 +158,12 @@ const Chat = () => {
                     )}
 
                     <ActiveModelsModal />
+
+                    <DefaultConfigModal
+                        config={defaultConfig}
+                        models={models}
+                        onSave={setDefaultConfig}
+                    />
 
                     <Button
                         onClick={handleAddSession}

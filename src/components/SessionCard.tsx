@@ -45,6 +45,7 @@ export type SessionState = {
     messages: ChatMessage[]
     stats?: StreamDoneStats
     isGenerating: boolean
+    initialPrompt?: string
 }
 
 interface SessionCardProps {
@@ -316,7 +317,7 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                     </div>
                 )}
                 <div className="w-full relative">
-                    <PromptInputProvider>
+                    <PromptInputProvider initialInput={session.initialPrompt}>
                         <BulkReceiver signal={bulkSendSignal} onSend={handleSend} />
                         <InputWatcher id={session.id} onUpdate={onInputUpdate} />
                         <PromptInput
