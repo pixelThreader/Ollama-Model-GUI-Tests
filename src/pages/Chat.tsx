@@ -2,9 +2,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { SessionCard } from '@/components/SessionCard'
-import type { SessionState } from '@/components/SessionCard'
+import type { SessionConfig } from '@/components/SessionCard'
 import { listModels } from '@/lib/ollamaClient'
-import type { OllamaModel } from '@/lib/ollamaClient'
+import type { OllamaModel, StreamDoneStats } from '@/lib/ollamaClient'
 import { Button } from '@/components/ui/button'
 import { PlusIcon, LayersIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
@@ -14,12 +14,16 @@ import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConf
 
 
 const Chat = () => {
-    const [sessions, setSessions] = useState<SessionState[]>([])
+    // ── Only config-level state — NO messages, NO streaming data ──
+    const [sessions, setSessions] = useState<SessionConfig[]>([])
     const [models, setModels] = useState<OllamaModel[]>([])
     const [isLoadingModels, setIsLoadingModels] = useState(true)
     const [bulkSendSignal, setBulkSendSignal] = useState(0)
     const [fillRandomSignal, setFillRandomSignal] = useState(0)
     const [inputStates, setInputStates] = useState<Record<string, boolean>>({})
+
+    // ── Global metrics from streaming callbacks ──
+    const [streamingStatus, setStreamingStatus] = useState<Record<string, { isGenerating: boolean; stats?: StreamDoneStats }>>({})
 
     const [defaultConfig, setDefaultConfig] = useState<DefaultConfig>(() => {
         const saved = localStorage.getItem('ollama_default_config')
@@ -62,15 +66,13 @@ const Chat = () => {
     }, [])
 
     const handleAddSession = useCallback(() => {
-        const newSession: SessionState = {
+        const newSession: SessionConfig = {
             id: nanoid(),
             model: defaultConfig.model || (models.length > 0 ? models[0].name : ''),
             systemPromptId: defaultConfig.systemPromptId,
             personalityId: defaultConfig.personalityId,
             mode: defaultConfig.mode,
             initialPrompt: defaultConfig.prompt,
-            messages: [],
-            isGenerating: false,
         }
         setSessions((prev) => [...prev, newSession])
     }, [defaultConfig, models])
@@ -78,6 +80,11 @@ const Chat = () => {
     const handleRemoveSession = useCallback((id: string) => {
         setSessions((prev) => prev.filter((s) => s.id !== id))
         setInputStates((prev) => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+        })
+        setStreamingStatus((prev) => {
             const next = { ...prev }
             delete next[id]
             return next
@@ -99,23 +106,30 @@ const Chat = () => {
         })
     }, [])
 
-    const handleUpdateSession = useCallback((id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => {
+    const handleUpdateConfig = useCallback((id: string, updates: Partial<SessionConfig>) => {
         setSessions((prev) =>
             prev.map((session) => {
                 if (session.id === id) {
-                    // Allow functional updates
-                    const resolvedUpdates = typeof updates === 'function' ? updates(session) : updates
-                    return { ...session, ...resolvedUpdates }
+                    return { ...session, ...updates }
                 }
                 return session
             })
         )
     }, [])
 
-    // Calculate global metrics if multiple are done
-    const completedSessions = sessions.filter(s => s.stats && !s.isGenerating)
+    const handleStreamingStatus = useCallback((id: string, isGenerating: boolean, stats?: StreamDoneStats) => {
+        setStreamingStatus((prev) => {
+            const existing = prev[id]
+            // Avoid unnecessary state updates
+            if (existing && existing.isGenerating === isGenerating && existing.stats === stats) return prev
+            return { ...prev, [id]: { isGenerating, stats } }
+        })
+    }, [])
+
+    // Calculate global metrics from streaming status reports
+    const completedSessions = Object.values(streamingStatus).filter(s => s.stats && !s.isGenerating)
     const totalTokens = completedSessions.reduce((acc, s) => acc + (s.stats?.evalCount || 0), 0)
-    const activeCount = sessions.filter(s => s.isGenerating).length
+    const activeCount = Object.values(streamingStatus).filter(s => s.isGenerating).length
 
     return (
         <div className="flex flex-col h-full w-full overflow-hidden absolute inset-0 pt-14">
@@ -204,14 +218,15 @@ const Chat = () => {
                             <p className="text-sm">Add a session to start benchmarking concurrency.</p>
                         </div>
                     ) : (
-                        sessions.map((session) => (
+                        sessions.map((config) => (
                             <SessionCard
-                                key={session.id}
-                                session={session}
+                                key={config.id}
+                                config={config}
                                 models={models}
-                                onUpdate={handleUpdateSession}
+                                onUpdateConfig={handleUpdateConfig}
                                 onRemove={handleRemoveSession}
                                 onInputUpdate={handleInputUpdate}
+                                onStreamingStatus={handleStreamingStatus}
                                 bulkSendSignal={bulkSendSignal}
                                 fillRandomSignal={fillRandomSignal}
                             />

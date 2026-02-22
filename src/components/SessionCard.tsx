@@ -47,24 +47,31 @@ export type ChatMessage = {
     images?: string[]
 }
 
-export type SessionState = {
+/** Config-only shape that the parent manages (no streaming data) */
+export type SessionConfig = {
     id: string
     model: string
     systemPromptId: string
     personalityId: string
     mode: 'stream' | 'generate' | 'structured'
-    messages: ChatMessage[]
-    stats?: StreamDoneStats
-    isGenerating: boolean
     initialPrompt?: string
 }
 
+/** Full session state — kept internally by each SessionCard */
+export type SessionState = SessionConfig & {
+    messages: ChatMessage[]
+    stats?: StreamDoneStats
+    isGenerating: boolean
+}
+
 interface SessionCardProps {
-    session: SessionState
+    config: SessionConfig
     models: OllamaModel[]
-    onUpdate: (id: string, updates: Partial<SessionState> | ((prev: SessionState) => Partial<SessionState>)) => void
+    onUpdateConfig: (id: string, updates: Partial<SessionConfig>) => void
     onRemove: (id: string) => void
     onInputUpdate: (id: string, hasValue: boolean) => void
+    /** Signals that bubble status up for global metrics */
+    onStreamingStatus?: (id: string, isGenerating: boolean, stats?: StreamDoneStats) => void
     bulkSendSignal: number
     fillRandomSignal: number
 }
@@ -201,24 +208,160 @@ MemoizedMessage.displayName = 'MemoizedMessage'
 
 const visionCapabilityCache: Record<string, boolean> = {}
 
-export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal, fillRandomSignal }: SessionCardProps) => {
+/**
+ * SessionCard now manages its OWN streaming state (messages, stats, isGenerating).
+ * The parent only passes down config (model, prompts, mode) and signals.
+ * This means a chunk arriving for session A NEVER triggers a re-render of session B.
+ */
+export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onInputUpdate, onStreamingStatus, bulkSendSignal, fillRandomSignal }: SessionCardProps) => {
     const scrollRef = useRef<HTMLDivElement>(null)
     const workerRef = useRef<Worker | null>(null)
 
-    // Setup Web Worker per session for strictly parallel execution
+    // ── LOCAL streaming state — only THIS card re-renders on chunk ──
+    const [messages, setMessages] = useState<ChatMessage[]>([])
+    const [stats, setStats] = useState<StreamDoneStats | undefined>(undefined)
+    const [isGenerating, setIsGenerating] = useState(false)
+
+    // ── Refs for mutable streaming state (avoids stale closures) ──
+    const configRef = useRef(config)
+    useEffect(() => { configRef.current = config })
+
+    const messagesRef = useRef(messages)
+    useEffect(() => { messagesRef.current = messages })
+
+    // Track the current assistant message being streamed
+    const activeAssistantIdRef = useRef<string | null>(null)
+
+    // Notify parent about streaming status changes (for global metrics)
+    const onStreamingStatusRef = useRef(onStreamingStatus)
+    useEffect(() => { onStreamingStatusRef.current = onStreamingStatus })
+
+    // Buffer for accumulating chunks before flushing to React state
+    const chunkBufferRef = useRef<{ content: string; thinking: string } | null>(null)
+    const rafIdRef = useRef<number | null>(null)
+
+    // Setup Web Worker per session — handler set ONCE, never re-assigned
     useEffect(() => {
-        workerRef.current = new AgentWorker()
+        const worker = new AgentWorker()
+        workerRef.current = worker
+
+        // Flush function: applies buffered content to React state via rAF
+        const flushBuffer = () => {
+            rafIdRef.current = null
+            const buf = chunkBufferRef.current
+            if (!buf) return
+            const assistantMsgId = activeAssistantIdRef.current
+            if (!assistantMsgId) return
+
+            const mode = configRef.current.mode
+            const content = mode === 'structured' ? `\`\`\`json\n${buf.content}\n\`\`\`` : buf.content
+            const thinking = buf.thinking
+
+            setMessages(prev => {
+                const idx = prev.findIndex(m => m.id === assistantMsgId)
+                if (idx === -1) return prev
+                const updated = [...prev]
+                updated[idx] = { ...updated[idx], content, thinking }
+                return updated
+            })
+        }
+
+        // Single stable message handler — uses refs so it never goes stale
+        worker.onmessage = (e) => {
+            const { id, action, chunk, error } = e.data
+            const sid = configRef.current.id
+            if (id !== sid) return
+
+            const assistantMsgId = activeAssistantIdRef.current
+            if (!assistantMsgId) return
+
+            if (action === 'chunk') {
+                const content = chunk.content || ''
+                const thinking = chunk.thinking || ''
+
+                if (chunk.done) {
+                    // Cancel any pending rAF flush
+                    if (rafIdRef.current !== null) {
+                        cancelAnimationFrame(rafIdRef.current)
+                        rafIdRef.current = null
+                    }
+                    chunkBufferRef.current = null
+
+                    const mode = configRef.current.mode
+                    const finalContent = mode === 'structured' ? `\`\`\`json\n${content}\n\`\`\`` : content
+
+                    setMessages(prev => prev.map(m =>
+                        m.id === assistantMsgId
+                            ? { ...m, isStreaming: false, content: finalContent, thinking }
+                            : m
+                    ))
+                    const doneStats: StreamDoneStats = {
+                        totalDuration: chunk.totalDuration ?? 0,
+                        loadDuration: chunk.loadDuration ?? 0,
+                        promptEvalCount: chunk.promptEvalCount ?? 0,
+                        promptEvalDuration: chunk.promptEvalDuration ?? 0,
+                        evalCount: chunk.evalCount ?? 0,
+                        evalDuration: chunk.evalDuration ?? 0,
+                    }
+                    setStats(doneStats)
+                    setIsGenerating(false)
+                    onStreamingStatusRef.current?.(sid, false, doneStats)
+                } else {
+                    const mode = configRef.current.mode
+                    if (mode === 'generate') return // generate mode doesn't stream incrementally
+
+                    // Buffer the chunk data and schedule a rAF flush
+                    chunkBufferRef.current = { content, thinking }
+                    if (rafIdRef.current === null) {
+                        rafIdRef.current = requestAnimationFrame(flushBuffer)
+                    }
+                }
+            } else if (action === 'error') {
+                // Cancel any pending rAF flush
+                if (rafIdRef.current !== null) {
+                    cancelAnimationFrame(rafIdRef.current)
+                    rafIdRef.current = null
+                }
+                chunkBufferRef.current = null
+
+                const errorContent = '\n\n**Error:** ' + error
+                const mode = configRef.current.mode
+
+                setMessages(prev => {
+                    const idx = prev.findIndex(m => m.id === assistantMsgId)
+                    if (idx === -1) return prev
+                    const updated = [...prev]
+                    const existing = updated[idx].content || ''
+                    const full = existing + errorContent
+                    updated[idx] = {
+                        ...updated[idx],
+                        content: mode === 'structured' ? `\`\`\`json\n${full}\n\`\`\`` : full,
+                        isStreaming: false,
+                    }
+                    return updated
+                })
+                setIsGenerating(false)
+                onStreamingStatusRef.current?.(sid, false)
+            }
+        }
+
         return () => {
-            workerRef.current?.terminate()
+            if (rafIdRef.current !== null) {
+                cancelAnimationFrame(rafIdRef.current)
+            }
+            worker.terminate()
         }
     }, [])
 
-    // Auto-scroll to bottom
+    // Auto-scroll to bottom (debounced via rAF)
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        const el = scrollRef.current
+        if (el) {
+            requestAnimationFrame(() => {
+                el.scrollTop = el.scrollHeight
+            })
         }
-    }, [session.messages])
+    }, [messages])
 
     const [hasVision, setHasVision] = useState(false)
 
@@ -226,20 +369,20 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         let mounted = true
 
         const checkVision = async () => {
-            if (!session.model) {
+            if (!config.model) {
                 if (mounted) setHasVision(false)
                 return
             }
 
             // Fast path: check names first
-            const low = session.model.toLowerCase()
+            const low = config.model.toLowerCase()
             if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
                 if (mounted) setHasVision(true)
                 return
             }
 
             // Then check tags if they exist
-            const selected = models.find(m => m.name === session.model)
+            const selected = models.find(m => m.name === config.model)
             const inTags = selected?.details?.families?.includes('vision') || false
             if (inTags) {
                 if (mounted) setHasVision(true)
@@ -247,17 +390,17 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
             }
 
             // Return cached value if any
-            if (session.model in visionCapabilityCache) {
-                if (mounted) setHasVision(visionCapabilityCache[session.model] || false)
+            if (config.model in visionCapabilityCache) {
+                if (mounted) setHasVision(visionCapabilityCache[config.model] || false)
                 return
             }
 
             try {
-                const details = await showModel(session.model)
+                const details = await showModel(config.model)
                 const isVision = details.details?.families?.includes('vision') ||
                     details.capabilities?.includes('vision') ||
                     false
-                visionCapabilityCache[session.model] = isVision
+                visionCapabilityCache[config.model] = isVision
                 if (mounted) setHasVision(isVision)
             } catch {
                 if (mounted) setHasVision(false)
@@ -267,12 +410,15 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         checkVision()
 
         return () => { mounted = false }
-    }, [session.model, models])
+    }, [config.model, models])
 
     const isVisionModel = hasVision
 
+    // handleSend — works purely with local state + refs
     const handleSend = useCallback((msg: PromptInputMessage) => {
         if (!msg.text.trim()) return
+
+        const c = configRef.current
 
         // Convert files to base64 if any
         const uiImages: string[] = []
@@ -280,8 +426,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         if (msg.files?.length) {
             for (const filePart of msg.files) {
                 if (filePart.url && filePart.url.startsWith('data:')) {
-                    uiImages.push(filePart.url) // Keep full data URI for UI rendering
-                    // Extract base64 from data URL for API
+                    uiImages.push(filePart.url)
                     apiImages.push(filePart.url.split(',')[1])
                 }
             }
@@ -295,110 +440,69 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         }
 
         const assistantMsgId = (Date.now() + 1).toString()
+        activeAssistantIdRef.current = assistantMsgId
+
         const initialAssistantMessage: ChatMessage = {
             id: assistantMsgId,
             role: 'assistant',
-            content: session.mode === 'structured' ? '```json\n\n```' : '',
+            content: c.mode === 'structured' ? '```json\n\n```' : '',
             thinking: '',
             isStreaming: true,
         }
 
-        // Capture current history
-        const history: { role: 'user' | 'assistant' | 'system', content: string }[] = session.messages.map((m) => ({
+        // Capture current history from ref (no dependency on messages state)
+        const currentMessages = messagesRef.current
+        const history: { role: 'user' | 'assistant' | 'system', content: string }[] = currentMessages.map((m) => ({
             role: m.role,
             content: m.content,
         }))
 
-        onUpdate(session.id, {
-            messages: [...session.messages, userMessage, initialAssistantMessage],
-            isGenerating: true,
-            stats: undefined,
-        })
+        // Update local state
+        setMessages(prev => [...prev, userMessage, initialAssistantMessage])
+        setIsGenerating(true)
+        setStats(undefined)
+        onStreamingStatusRef.current?.(c.id, true)
 
         // Cancel previous if any
-        workerRef.current?.postMessage({ id: session.id, action: 'abort' })
+        workerRef.current?.postMessage({ id: c.id, action: 'abort' })
 
-        const systemPrompt = SYSTEM_PROMPTS[session.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
-        const personality = PERSONALITIES[session.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
+        const systemPrompt = SYSTEM_PROMPTS[c.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
+        const personality = PERSONALITIES[c.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
 
-        let finalContent = ''
-        let finalThinking = ''
-
-        workerRef.current!.onmessage = (e) => {
-            const { id, action, chunk, error } = e.data
-            if (id !== session.id) return
-
-            if (action === 'chunk') {
-                finalContent = chunk.content || ''
-                finalThinking = chunk.thinking || ''
-
-                if (chunk.done) {
-                    onUpdate(session.id, (prev: SessionState) => ({
-                        stats: chunk as StreamDoneStats,
-                        isGenerating: false,
-                        messages: prev.messages.map((m: ChatMessage) =>
-                            m.id === assistantMsgId ? { ...m, isStreaming: false, content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, thinking: finalThinking } : m
-                        )
-                    }))
-                } else {
-                    onUpdate(session.id, (prev: SessionState) => {
-                        if (prev.mode === 'generate') return {}
-                        const temp = [...prev.messages]
-                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                        if (lastIdx !== -1) {
-                            temp[lastIdx] = {
-                                ...temp[lastIdx],
-                                content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
-                                thinking: finalThinking,
-                            }
-                        }
-                        return { messages: temp }
-                    })
-                }
-            } else if (action === 'error') {
-                finalContent += '\n\n**Error:** ' + error
-                onUpdate(session.id, (prev: SessionState) => {
-                    const temp = [...prev.messages]
-                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                    if (lastIdx !== -1) {
-                        temp[lastIdx] = { ...temp[lastIdx], content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, isStreaming: false }
-                    }
-                    return { isGenerating: false, messages: temp }
-                })
-            }
-        }
-
+        // Fire the worker — no onmessage re-assignment, handler is already set
         workerRef.current!.postMessage({
-            id: session.id,
+            id: c.id,
             action: 'start',
             payload: {
-                model: session.model,
+                model: c.model,
                 prompt: msg.text,
                 images: apiImages.length > 0 ? apiImages : undefined,
                 systemPrompt,
                 personality,
                 history,
-                format: session.mode === 'structured' ? 'json' : undefined,
+                format: c.mode === 'structured' ? 'json' : undefined,
             }
         })
-    }, [session.id, session.messages, session.model, session.systemPromptId, session.personalityId, session.mode, onUpdate])
+    }, [])
 
     const handleStop = useCallback(() => {
-        workerRef.current?.postMessage({ id: session.id, action: 'abort' })
-        onUpdate(session.id, { isGenerating: false })
-    }, [session.id, onUpdate])
+        workerRef.current?.postMessage({ id: config.id, action: 'abort' })
+        setIsGenerating(false)
+        onStreamingStatusRef.current?.(config.id, false)
+    }, [config.id])
 
     const handleClear = useCallback(() => {
-        onUpdate(session.id, { messages: [], stats: undefined })
-    }, [session.id, onUpdate])
+        setMessages([])
+        setStats(undefined)
+    }, [])
 
     return (
         <Card className="py-0 flex flex-col h-full w-[400px] shrink-0 overflow-hidden border-border/50 shadow-sm bg-card/50 backdrop-blur-sm">
             <CardHeader className="p-3 border-b border-border/50 space-y-3 bg-muted/20">
                 <div className="flex items-center justify-between">
                     <Select
-                        value={session.model}
-                        onValueChange={(val) => onUpdate(session.id, { model: val })}
+                        value={config.model}
+                        onValueChange={(val) => onUpdateConfig(config.id, { model: val })}
                     >
                         <SelectTrigger className="w-[180px] h-8 text-xs font-medium">
                             <SelectValue placeholder="Select model" />
@@ -415,15 +519,15 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={handleClear} title="Clear Chat">
                             <Trash2Icon className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => onRemove(session.id)} title="Close Session">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => onRemove(config.id)} title="Close Session">
                             <XIcon className="h-3.5 w-3.5" />
                         </Button>
                     </div>
                 </div>
                 <div className="flex gap-2">
                     <Select
-                        value={session.systemPromptId}
-                        onValueChange={(val) => onUpdate(session.id, { systemPromptId: val })}
+                        value={config.systemPromptId}
+                        onValueChange={(val) => onUpdateConfig(config.id, { systemPromptId: val })}
                     >
                         <SelectTrigger className="flex-1 h-7 text-[11px]">
                             <SelectValue placeholder="Prompt" />
@@ -437,8 +541,8 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         </SelectContent>
                     </Select>
                     <Select
-                        value={session.personalityId}
-                        onValueChange={(val) => onUpdate(session.id, { personalityId: val })}
+                        value={config.personalityId}
+                        onValueChange={(val) => onUpdateConfig(config.id, { personalityId: val })}
                     >
                         <SelectTrigger className="flex-1 h-7 text-[11px]">
                             <SelectValue placeholder="Personality" />
@@ -452,8 +556,8 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         </SelectContent>
                     </Select>
                     <Select
-                        value={session.mode || 'stream'}
-                        onValueChange={(val: 'stream' | 'generate' | 'structured') => onUpdate(session.id, { mode: val })}
+                        value={config.mode || 'stream'}
+                        onValueChange={(val: 'stream' | 'generate' | 'structured') => onUpdateConfig(config.id, { mode: val })}
                     >
                         <SelectTrigger className="w-[100px] h-7 text-[11px]">
                             <SelectValue placeholder="Mode" />
@@ -468,7 +572,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
             </CardHeader>
 
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth" ref={scrollRef}>
-                {session.messages.length === 0 ? (
+                {messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 space-y-2">
                         <div className="p-3 rounded-full bg-muted">
                             <PlayIcon className="h-6 w-6" />
@@ -476,27 +580,27 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         <p className="text-sm font-medium">Ready to start</p>
                     </div>
                 ) : (
-                    session.messages.map((msg) => (
+                    messages.map((msg) => (
                         <MemoizedMessage key={msg.id} message={msg} />
                     ))
                 )}
             </CardContent>
 
             <CardFooter className="p-3 border-t border-border/50 bg-background flex-col gap-3">
-                {session.stats && !session.isGenerating && (
+                {stats && !isGenerating && (
                     <div className="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-green-500/10 border border-green-500/20 text-[10px] text-green-600 dark:text-green-400 font-mono">
                         <div className="flex items-center gap-1.5">
                             <TimerIcon className="h-3 w-3" />
-                            <span>{(session.stats.totalDuration / 1e9).toFixed(2)}s</span>
+                            <span>{(stats.totalDuration / 1e9).toFixed(2)}s</span>
                         </div>
-                        <span>{Math.round(session.stats.evalCount / (session.stats.evalDuration / 1e9))} t/s</span>
+                        <span>{Math.round(stats.evalCount / (stats.evalDuration / 1e9))} t/s</span>
                     </div>
                 )}
                 <div className="w-full relative">
-                    <PromptInputProvider initialInput={session.initialPrompt}>
+                    <PromptInputProvider initialInput={config.initialPrompt}>
                         <BulkReceiver signal={bulkSendSignal} onSend={handleSend} />
-                        <InputWatcher id={session.id} onUpdate={onInputUpdate} />
-                        <FillWatcher signal={fillRandomSignal} mode={session.mode} />
+                        <InputWatcher id={config.id} onUpdate={onInputUpdate} />
+                        <FillWatcher signal={fillRandomSignal} mode={config.mode} />
                         <PromptInput
                             accept="image/*"
                             className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"
@@ -507,17 +611,17 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                             </PromptInputHeader>
                             <PromptInputBody>
                                 <PromptInputTextarea
-                                    disabled={session.isGenerating}
+                                    disabled={isGenerating}
                                 />
                             </PromptInputBody>
                             <PromptInputFooter>
                                 <PromptInputTools className="flex-1 w-full">
                                     {isVisionModel && (
-                                        <ImagePickerButton disabled={session.isGenerating} />
+                                        <ImagePickerButton disabled={isGenerating} />
                                     )}
                                 </PromptInputTools>
                                 <PromptInputSubmit
-                                    status={session.isGenerating ? "streaming" : undefined}
+                                    status={isGenerating ? "streaming" : undefined}
                                     onStop={handleStop}
                                 />
                             </PromptInputFooter>
