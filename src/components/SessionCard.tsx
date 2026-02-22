@@ -126,7 +126,7 @@ function InputWatcher({ id, onUpdate }: { id: string, onUpdate: (id: string, has
     return null
 }
 
-function FillWatcher({ signal }: { signal: number }) {
+function FillWatcher({ signal, mode }: { signal: number, mode?: 'stream' | 'generate' | 'structured' }) {
     const controller = usePromptInputController()
     const lastProcessedSignal = useRef(0)
 
@@ -135,10 +135,10 @@ function FillWatcher({ signal }: { signal: number }) {
             lastProcessedSignal.current = signal
             const current = controller.textInput.value.trim()
             if (!current) {
-                controller.textInput.setInput(generateRandomPrompt())
+                controller.textInput.setInput(generateRandomPrompt(mode))
             }
         }
-    }, [signal, controller])
+    }, [signal, mode, controller])
     return null
 }
 
@@ -293,9 +293,8 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                     format: session.mode === 'structured' ? 'json' : undefined,
                 })
 
-                let chunkCount = 0
+                let lastUpdateTime = Date.now()
                 for await (const chunk of stream) {
-                    chunkCount++
                     if (chunk.done) {
                         onUpdate(session.id, (prev: SessionState) => ({
                             stats: chunk as StreamDoneStats,
@@ -310,22 +309,22 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                     finalContent += chunk.content
                     if (chunk.thinking) finalThinking += chunk.thinking
 
-                    onUpdate(session.id, (prev: SessionState) => {
-                        if (prev.mode === 'generate') return {}
-                        const temp = [...prev.messages]
-                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                        if (lastIdx !== -1) {
-                            temp[lastIdx] = {
-                                ...temp[lastIdx],
-                                content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
-                                thinking: finalThinking,
+                    const now = Date.now()
+                    if (now - lastUpdateTime > 50) {
+                        lastUpdateTime = now
+                        onUpdate(session.id, (prev: SessionState) => {
+                            if (prev.mode === 'generate') return {}
+                            const temp = [...prev.messages]
+                            const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                            if (lastIdx !== -1) {
+                                temp[lastIdx] = {
+                                    ...temp[lastIdx],
+                                    content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
+                                    thinking: finalThinking,
+                                }
                             }
-                        }
-                        return { messages: temp }
-                    })
-
-                    if (chunkCount % 2 === 0) {
-                        await new Promise(r => setTimeout(r, 0))
+                            return { messages: temp }
+                        })
                     }
                 }
             } catch (err: unknown) {
@@ -462,7 +461,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                     <PromptInputProvider initialInput={session.initialPrompt}>
                         <BulkReceiver signal={bulkSendSignal} onSend={handleSend} />
                         <InputWatcher id={session.id} onUpdate={onInputUpdate} />
-                        <FillWatcher signal={fillRandomSignal} />
+                        <FillWatcher signal={fillRandomSignal} mode={session.mode} />
                         <PromptInput
                             accept="image/*"
                             className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"

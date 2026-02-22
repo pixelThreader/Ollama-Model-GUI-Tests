@@ -74,7 +74,9 @@ const tones = [
  * Total: 40 * 20 * 20 * 20 * 20 * 20 = 128,000,000 permutations (1.28 * 10^8)
  * By expanding the lists or adding more segments, we can easily reach higher magnitudes.
  */
-export function generateRandomPrompt(): string {
+export type PromptMode = 'stream' | 'generate' | 'structured';
+
+export function generateRandomPrompt(mode?: PromptMode): string {
     const s = subjects[Math.floor(Math.random() * subjects.length)];
     const v = verbs[Math.floor(Math.random() * verbs.length)];
     const m = modifiers[Math.floor(Math.random() * modifiers.length)];
@@ -91,5 +93,15 @@ export function generateRandomPrompt(): string {
     ];
 
     const builder = structures[Math.floor(Math.random() * structures.length)];
-    return builder();
+    let finalPrompt = builder();
+
+    if (mode === 'structured') {
+        finalPrompt += '\n\nIMPORTANT: You must output strictly in JSON format. The JSON should have exactly this structure: { "title": "Your Title", "summary": "A brief summary", "key_points": ["Point 1", "Point 2"], "conclusion": "Your conclusion" }. Do not add any extra text or conversational formatting outside of the JSON object.';
+    } else if (mode === 'generate') {
+        finalPrompt += '\n\nPlease present your entire response at once, structuring it cohesively and completely.';
+    } else if (mode === 'stream') {
+        finalPrompt += '\n\nPlease progressively build upon your answer, suitable for a dynamic real-time stream.';
+    }
+
+    return finalPrompt;
 }
