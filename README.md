@@ -8,7 +8,9 @@ A high-concurrency GUI for stress testing system performance and connectivity wi
 
 Built as a testing harness for [Deep Researcher V2](https://github.com/pixelThreader).
 
-![Add a screenshot of the Home page showing the hero section, Quick Benchmark panel, and Model Library](public/screenshots/home-page.png)
+<p align="center">
+  <img src="public/screenshots/home-page.png" alt="Home page showing hero section, Quick Benchmark, and Model Library" />
+</p>
 
 ---
 
@@ -51,7 +53,9 @@ The GUI is intentionally built so that end users do not need to interact with th
 - Expand any model to view full technical specifications, capabilities badges, and architecture details.
 - View the raw Modelfile and license information in a dedicated modal.
 
-![Add a screenshot of the Model Library with filters active and one model expanded](public/screenshots/model-library.png)
+<p align="center">
+  <img src="public/screenshots/model-library.png" alt="Model Library with filters active and one model expanded" />
+</p>
 
 ### Concurrency Kanban
 
@@ -64,9 +68,13 @@ The GUI is intentionally built so that end users do not need to interact with th
 - Per-session controls: model selector, system prompt, personality, prompt input, image attachments (for vision-capable models), and abort.
 - Global controls: Bulk Send (fire all sessions at once), Fill Empty (populate all prompts with randomized stress-test prompts).
 
-![Add a screenshot of the Concurrency Kanban with multiple sessions streaming simultaneously](public/screenshots/concurrency-kanban.png)
+<p align="center">
+  <img src="public/screenshots/concurrency-kanban.png" alt="Concurrency Kanban with multiple sessions streaming simultaneously" />
+</p>
 
-![Add a video showing multiple agents working together in real-time streaming](public/recordings/parallel-streaming-demo.mp4)
+<!-- <p align="center">
+  <a href="public/recordings/parallel-streaming-demo.mp4">🎬 View Parallel Streaming Demo Video</a>
+</p> -->
 
 ### Active Models Monitor
 
@@ -75,7 +83,9 @@ The GUI is intentionally built so that end users do not need to interact with th
 - Unload individual models from memory directly from the UI.
 - Auto-refreshes on open to reflect the current server state.
 
-![Add a screenshot of the Active Models modal showing loaded models with memory stats](public/screenshots/active-models-modal.png)
+<p align="center">
+  <img src="public/screenshots/active-models-modal.png" alt="Active Models modal showing loaded models with memory stats" />
+</p>
 
 ### Session Configuration
 
@@ -219,7 +229,9 @@ Alternatively, use the preset cards:
 - Expand any model to view detailed specifications.
 - Click "View Modelfile and License" to inspect the raw configuration.
 
-![Add a screenshot of the Quick Benchmark panel with a model selected and workers set](public/screenshots/quick-benchmark.png)
+<p align="center">
+  <img src="public/screenshots/quick-benchmark.png" width="500" alt="Quick Benchmark panel with a model selected and workers set" />
+</p>
 
 ### Chat Page -- Concurrency Kanban
 
@@ -237,7 +249,9 @@ After launching workers (or navigating to `/chat` directly):
 - Abort a running generation with the stop button.
 - Remove a session with the close button.
 
-![Add a screenshot of a single session card showing a completed response with stats](public/screenshots/session-card-detail.png)
+<p align="center">
+  <img src="public/screenshots/session-card-detail.png" width="500" alt="Single session card showing a completed response with stats" />
+</p>
 
 **Global Controls:**
 - **Bulk Send** -- appears when multiple sessions have prompts ready; sends all at once.
@@ -245,8 +259,6 @@ After launching workers (or navigating to `/chat` directly):
 - **Active Models** -- opens a modal showing all models currently loaded in memory with options to unload them.
 - **Default Config** -- opens a modal to set default model, system prompt, personality, mode, and prompt for new sessions.
 - **Add Session** -- adds a new card to the Kanban board.
-
-![Add a video showing the full workflow: launching workers, filling prompts, bulk sending, and viewing results](public/recordings/full-workflow-demo.mp4)
 
 ---
 
@@ -364,8 +376,7 @@ The following screenshots and recordings should be placed in the `public/screens
 | `screenshots/active-models-modal.png`   | Active Models modal showing loaded models with memory statistics      |
 | `screenshots/quick-benchmark.png`       | Quick Benchmark panel with model selected and workers configured      |
 | `screenshots/session-card-detail.png`   | Single session card showing a completed response with performance stats|
-| `recordings/parallel-streaming-demo.mp4`| Video showing multiple agents streaming responses in real-time        |
-| `recordings/full-workflow-demo.mp4`     | Video of the full workflow: launch, fill, bulk send, view results     |
+<!-- | `recordings/parallel-streaming-demo.mp4`| Video showing multiple agents streaming responses in real-time        | -->
 
 ---
 
