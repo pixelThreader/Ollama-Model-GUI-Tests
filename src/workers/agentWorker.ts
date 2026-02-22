@@ -20,8 +20,24 @@ self.onmessage = async (e: MessageEvent) => {
             opts.signal = controller.signal
 
             const stream = streamChat(opts)
+
+            let finalContent = ''
+            let finalThinking = ''
+            let lastUpdate = Date.now()
+
             for await (const chunk of stream) {
-                self.postMessage({ id, action: 'chunk', chunk })
+                finalContent += chunk.content
+                if (chunk.thinking) finalThinking += chunk.thinking
+
+                const now = Date.now()
+                if (now - lastUpdate > 50 || chunk.done) {
+                    lastUpdate = now
+                    self.postMessage({
+                        id,
+                        action: 'chunk',
+                        chunk: { ...chunk, content: finalContent, thinking: finalThinking }
+                    })
+                }
             }
             self.postMessage({ id, action: 'done' })
         } catch (err: unknown) {

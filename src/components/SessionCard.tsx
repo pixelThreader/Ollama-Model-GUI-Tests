@@ -323,13 +323,15 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
 
         let finalContent = ''
         let finalThinking = ''
-        let lastUpdateTime = Date.now()
 
         workerRef.current!.onmessage = (e) => {
             const { id, action, chunk, error } = e.data
             if (id !== session.id) return
 
             if (action === 'chunk') {
+                finalContent = chunk.content || ''
+                finalThinking = chunk.thinking || ''
+
                 if (chunk.done) {
                     onUpdate(session.id, (prev: SessionState) => ({
                         stats: chunk as StreamDoneStats,
@@ -339,26 +341,19 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         )
                     }))
                 } else {
-                    finalContent += chunk.content
-                    if (chunk.thinking) finalThinking += chunk.thinking
-
-                    const now = Date.now()
-                    if (now - lastUpdateTime > 50) {
-                        lastUpdateTime = now
-                        onUpdate(session.id, (prev: SessionState) => {
-                            if (prev.mode === 'generate') return {}
-                            const temp = [...prev.messages]
-                            const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                            if (lastIdx !== -1) {
-                                temp[lastIdx] = {
-                                    ...temp[lastIdx],
-                                    content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
-                                    thinking: finalThinking,
-                                }
+                    onUpdate(session.id, (prev: SessionState) => {
+                        if (prev.mode === 'generate') return {}
+                        const temp = [...prev.messages]
+                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                        if (lastIdx !== -1) {
+                            temp[lastIdx] = {
+                                ...temp[lastIdx],
+                                content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
+                                thinking: finalThinking,
                             }
-                            return { messages: temp }
-                        })
-                    }
+                        }
+                        return { messages: temp }
+                    })
                 }
             } else if (action === 'error') {
                 finalContent += '\n\n**Error:** ' + error
