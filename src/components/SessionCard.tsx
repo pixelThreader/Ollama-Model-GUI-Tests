@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState, memo } from 'react'
 import {
     Message,
     MessageContent,
@@ -18,15 +18,23 @@ import {
     PromptInputTools,
     PromptInputSubmit,
     usePromptInputController,
+    PromptInputHeader,
+    PromptInputButton,
 } from '@/components/ai-elements/prompt-input'
+import {
+    Attachments,
+    Attachment,
+    AttachmentPreview,
+    AttachmentRemove,
+} from '@/components/ai-elements/attachments'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
-import { streamChat } from '@/lib/ollamaClient'
+import { streamChat, showModel } from '@/lib/ollamaClient'
 import type { StreamDoneStats, OllamaModel } from '@/lib/ollamaClient'
 import { SYSTEM_PROMPTS, PERSONALITIES, systemPromptList, personalityList } from '@/lib/prompts'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
-import { XIcon, Trash2Icon, PlayIcon, TimerIcon } from 'lucide-react'
+import { XIcon, Trash2Icon, PlayIcon, TimerIcon, ImageIcon } from 'lucide-react'
 import { generateRandomPrompt } from '@/lib/dummy'
 
 export type ChatMessage = {
@@ -35,6 +43,7 @@ export type ChatMessage = {
     content: string
     thinking?: string
     isStreaming?: boolean
+    images?: string[]
 }
 
 export type SessionState = {
@@ -57,6 +66,36 @@ interface SessionCardProps {
     onInputUpdate: (id: string, hasValue: boolean) => void
     bulkSendSignal: number
     fillRandomSignal: number
+}
+
+// Helper components outside the main component for performance and clarity
+function AttachmentList() {
+    const { attachments } = usePromptInputController()
+    if (attachments.files.length === 0) return null
+
+    return (
+        <Attachments variant="inline" className="mb-2">
+            {attachments.files.map((file) => (
+                <Attachment key={file.id} data={file} onRemove={() => attachments.remove(file.id)}>
+                    <AttachmentPreview />
+                    <AttachmentRemove />
+                </Attachment>
+            ))}
+        </Attachments>
+    )
+}
+
+function ImagePickerButton({ disabled }: { disabled?: boolean }) {
+    const { attachments } = usePromptInputController()
+    return (
+        <PromptInputButton
+            disabled={disabled}
+            onClick={() => attachments.openFileDialog()}
+            tooltip="Upload images"
+        >
+            <ImageIcon className="h-4 w-4" />
+        </PromptInputButton>
+    )
 }
 
 function BulkReceiver({ signal, onSend }: { signal: number, onSend: (msg: PromptInputMessage) => void }) {
@@ -101,7 +140,39 @@ function FillWatcher({ signal }: { signal: number }) {
     return null
 }
 
-export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal, fillRandomSignal }: SessionCardProps) {
+// Optimized Message component
+const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
+    return (
+        <Message from={message.role} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <MessageContent>
+                {message.images && message.images.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        {message.images.map((img, i) => (
+                            <img
+                                key={i}
+                                src={`data:image/jpeg;base64,${img}`}
+                                alt="Uploaded content"
+                                className="max-w-[240px] max-h-[240px] rounded-lg object-cover shadow-sm border border-border/50"
+                            />
+                        ))}
+                    </div>
+                )}
+                {message.role === 'assistant' && message.thinking && (
+                    <Reasoning isStreaming={message.isStreaming}>
+                        <ReasoningTrigger />
+                        <ReasoningContent>{message.thinking}</ReasoningContent>
+                    </Reasoning>
+                )}
+                <MessageResponse>{message.content}</MessageResponse>
+            </MessageContent>
+        </Message>
+    )
+})
+MemoizedMessage.displayName = 'MemoizedMessage'
+
+const visionCapabilityCache: Record<string, boolean> = {}
+
+export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal, fillRandomSignal }: SessionCardProps) => {
     const scrollRef = useRef<HTMLDivElement>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -112,13 +183,59 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
         }
     }, [session.messages])
 
+    const [hasVision, setHasVision] = useState(() => {
+        // Fast path: check names first
+        const low = session.model.toLowerCase()
+        if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
+            return true
+        }
+        // Then check tags if they exist
+        const selected = models.find(m => m.name === session.model)
+        const inTags = selected?.details?.families?.includes('vision') || false
+        if (inTags) return true
+
+        // Return cached value if any
+        return visionCapabilityCache[session.model] || false
+    })
+
+    useEffect(() => {
+        if (hasVision) return
+        if (!session.model) return
+
+        let mounted = true
+        showModel(session.model).then(details => {
+            const isVision = details.details?.families?.includes('vision') ||
+                details.capabilities?.includes('vision') ||
+                false
+            visionCapabilityCache[session.model] = isVision
+            if (mounted && isVision) setHasVision(true)
+        }).catch(() => {
+            // Silently ignore failures, might be a network glitch
+        })
+        return () => { mounted = false }
+    }, [session.model, hasVision])
+
+    const isVisionModel = hasVision
+
     const handleSend = useCallback(async (msg: PromptInputMessage) => {
         if (!msg.text.trim()) return
+
+        // Convert files to base64 if any
+        const images: string[] = []
+        if (msg.files?.length) {
+            for (const filePart of msg.files) {
+                if (filePart.url && filePart.url.startsWith('data:')) {
+                    // Extract base64 from data URL
+                    images.push(filePart.url.split(',')[1])
+                }
+            }
+        }
 
         const userMessage: ChatMessage = {
             id: Date.now().toString(),
             role: 'user',
             content: msg.text,
+            images: images.length > 0 ? images : undefined
         }
 
         const assistantMsgId = (Date.now() + 1).toString()
@@ -154,6 +271,7 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
             const stream = streamChat({
                 model: session.model,
                 prompt: msg.text,
+                images: images,
                 systemPrompt,
                 personality,
                 history,
@@ -165,7 +283,6 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                 chunkCount++
                 if (chunk.done) {
                     onUpdate(session.id, (prev: SessionState) => ({
-                        // The final chunk contains all the stats properties directly
                         stats: chunk as StreamDoneStats,
                         isGenerating: false,
                         messages: prev.messages.map((m: ChatMessage) =>
@@ -178,11 +295,8 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                 finalContent += chunk.content
                 if (chunk.thinking) finalThinking += chunk.thinking
 
-                // Stream updates if in 'stream' mode
                 onUpdate(session.id, (prev: SessionState) => {
-                    if (prev.mode === 'generate') {
-                        return {}
-                    }
+                    if (prev.mode === 'generate') return {}
                     const temp = [...prev.messages]
                     const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
                     if (lastIdx !== -1) {
@@ -195,7 +309,6 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                     return { messages: temp }
                 })
 
-                // Allow React to commit the batch and browser to paint when streaming locally very fast
                 if (chunkCount % 2 === 0) {
                     await new Promise(r => setTimeout(r, 0))
                 }
@@ -311,17 +424,7 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                     </div>
                 ) : (
                     session.messages.map((msg) => (
-                        <Message key={msg.id} from={msg.role}>
-                            <MessageContent>
-                                {msg.role === 'assistant' && msg.thinking && (
-                                    <Reasoning isStreaming={msg.isStreaming}>
-                                        <ReasoningTrigger />
-                                        <ReasoningContent>{msg.thinking}</ReasoningContent>
-                                    </Reasoning>
-                                )}
-                                <MessageResponse>{msg.content}</MessageResponse>
-                            </MessageContent>
-                        </Message>
+                        <MemoizedMessage key={msg.id} message={msg} />
                     ))
                 )}
             </CardContent>
@@ -342,16 +445,24 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
                         <InputWatcher id={session.id} onUpdate={onInputUpdate} />
                         <FillWatcher signal={fillRandomSignal} />
                         <PromptInput
+                            accept="image/*"
                             className="bg-background border focus-within:ring-1 focus-within:ring-primary/30 rounded-xl shadow-sm"
                             onSubmit={handleSend}
                         >
+                            <PromptInputHeader>
+                                <AttachmentList />
+                            </PromptInputHeader>
                             <PromptInputBody>
                                 <PromptInputTextarea
                                     disabled={session.isGenerating}
                                 />
                             </PromptInputBody>
                             <PromptInputFooter>
-                                <PromptInputTools className="flex-1 w-full" />
+                                <PromptInputTools className="flex-1 w-full">
+                                    {isVisionModel && (
+                                        <ImagePickerButton disabled={session.isGenerating} />
+                                    )}
+                                </PromptInputTools>
                                 <PromptInputSubmit
                                     status={session.isGenerating ? "streaming" : undefined}
                                     onStop={handleStop}
@@ -363,5 +474,5 @@ export function SessionCard({ session, models, onUpdate, onRemove, onInputUpdate
             </CardFooter>
         </Card>
     )
-}
-
+})
+SessionCard.displayName = 'SessionCard'
