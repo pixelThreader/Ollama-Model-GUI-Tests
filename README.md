@@ -4,7 +4,7 @@
 
 # System Stress Tester with Ollama
 
-A high-concurrency stress testing GUI for local Ollama LLM/SLM models. Deploy multiple parallel agent workers, stream responses in real-time, inspect model specifications, and measure throughput -- all from a premium, responsive web interface.
+A high-concurrency GUI for stress testing system performance and connectivity with local Ollama LLM/SLM models. Deploy multiple parallel agent workers, stream responses in real-time, inspect model specifications, and measure system throughput -- all from a premium, responsive web interface.
 
 Built as a testing harness for [Deep Researcher V2](https://github.com/pixelThreader).
 

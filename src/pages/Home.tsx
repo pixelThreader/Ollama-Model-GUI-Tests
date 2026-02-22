@@ -273,7 +273,7 @@ const Home = () => {
                 <div className="space-y-8 text-center max-w-4xl mx-auto mb-20">
 
                     <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-foreground">
-                        Stress Test Your <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-blue-600">Local LLMs</span>
+                        Stress Test Your System <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-blue-600">Concurrency</span>
                     </h1>
                     <p className="text-lg text-muted-foreground">
                         Deploy multiple parallel agent workers instantly. Real-time token streaming, zero-bottleneck architecture, built directly for Ollama.
