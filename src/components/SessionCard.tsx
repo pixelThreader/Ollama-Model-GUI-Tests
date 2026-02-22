@@ -74,7 +74,7 @@ function AttachmentList() {
     if (attachments.files.length === 0) return null
 
     return (
-        <Attachments variant="inline" className="mb-2">
+        <Attachments variant="grid" className="mb-2 flex w-full flex-wrap gap-2 px-3 pt-3">
             {attachments.files.map((file) => (
                 <Attachment key={file.id} data={file} onRemove={() => attachments.remove(file.id)}>
                     <AttachmentPreview />
@@ -108,9 +108,35 @@ function BulkReceiver({ signal, onSend }: { signal: number, onSend: (msg: Prompt
             const text = controller.textInput.value.trim()
             if (text) {
                 const files = [...controller.attachments.files]
-                onSend({ text, files })
-                controller.textInput.clear()
-                controller.attachments.clear()
+
+                // Convert blob URLs to data URLs asynchronously
+                const processBatch = async () => {
+                    const convertedFiles = await Promise.all(
+                        files.map(async (file) => {
+                            if (file.url?.startsWith('blob:')) {
+                                try {
+                                    const res = await fetch(file.url)
+                                    const blob = await res.blob()
+                                    return new Promise<typeof file>((resolve) => {
+                                        const reader = new FileReader()
+                                        reader.onloadend = () => resolve({ ...file, url: reader.result as string })
+                                        reader.onerror = () => resolve(file)
+                                        reader.readAsDataURL(blob)
+                                    })
+                                } catch {
+                                    return file
+                                }
+                            }
+                            return file
+                        })
+                    )
+
+                    onSend({ text, files: convertedFiles })
+                    controller.textInput.clear()
+                    controller.attachments.clear()
+                }
+
+                processBatch()
             }
         }
     }, [signal, onSend, controller])
@@ -152,7 +178,7 @@ const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
                         {message.images.map((img, i) => (
                             <img
                                 key={i}
-                                src={`data:image/jpeg;base64,${img}`}
+                                src={img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`}
                                 alt="Uploaded content"
                                 className="max-w-[240px] max-h-[240px] rounded-lg object-cover shadow-sm border border-border/50"
                             />
@@ -234,12 +260,14 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         if (!msg.text.trim()) return
 
         // Convert files to base64 if any
-        const images: string[] = []
+        const uiImages: string[] = []
+        const apiImages: string[] = []
         if (msg.files?.length) {
             for (const filePart of msg.files) {
                 if (filePart.url && filePart.url.startsWith('data:')) {
-                    // Extract base64 from data URL
-                    images.push(filePart.url.split(',')[1])
+                    uiImages.push(filePart.url) // Keep full data URI for UI rendering
+                    // Extract base64 from data URL for API
+                    apiImages.push(filePart.url.split(',')[1])
                 }
             }
         }
@@ -248,7 +276,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
             id: Date.now().toString(),
             role: 'user',
             content: msg.text,
-            images: images.length > 0 ? images : undefined
+            images: uiImages.length > 0 ? uiImages : undefined
         }
 
         const assistantMsgId = (Date.now() + 1).toString()
@@ -285,7 +313,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                 const stream = streamChat({
                     model: session.model,
                     prompt: msg.text,
-                    images: images,
+                    images: apiImages.length > 0 ? apiImages : undefined,
                     systemPrompt,
                     personality,
                     history,
