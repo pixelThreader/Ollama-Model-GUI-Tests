@@ -12,6 +12,11 @@ import { ActiveModelsModal } from '@/components/ActiveModelsModal'
 import { SendIcon, SparklesIcon } from 'lucide-react'
 import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConfigModal'
 
+type ChatSearch = {
+    workers?: number
+    model?: string
+}
+
 
 const Chat = () => {
     // ── Only config-level state — NO messages, NO streaming data ──
@@ -273,7 +278,7 @@ const Chat = () => {
 
 export const Route = createFileRoute('/chat')({
     component: Chat,
-    validateSearch: (search: Record<string, unknown>) => {
+    validateSearch: (search: Record<string, unknown>): ChatSearch => {
         return {
             workers: search.workers ? Number(search.workers) : undefined,
             model: (search.model as string) || undefined,

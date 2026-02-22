@@ -7,5 +7,4 @@ import {
 export const routes = rootRoute('Layout.tsx', [
     index('pages/Home.tsx'),
     route('/chat', 'pages/Chat.tsx'),
-    route('/benchmark', 'pages/Benchmark.tsx'),
 ])
