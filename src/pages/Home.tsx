@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { listModels, showModel, type OllamaModel, type ModelDetails } from '@/lib/ollamaClient'
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { AnimatePresence, motion } from "framer-motion"
+
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,11 +13,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { ActivityIcon, CpuIcon, LayersIcon, ZapIcon, InfoIcon, ShieldAlertIcon, FileTextIcon, TerminalIcon, CalendarIcon, PackageIcon, XIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 // Component to display extended details for a model
 const ModelDetailsView = ({ details }: { details: ModelDetails }) => {
+    const [isModalOpen, setIsModalOpen] = useState(false)
+
     return (
         <div className="space-y-4 p-4 bg-muted/20 rounded-md mt-2 border border-border/50">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -81,57 +84,79 @@ const ModelDetailsView = ({ details }: { details: ModelDetails }) => {
             )}
 
             <div className="pt-2 border-t border-border/30 flex justify-end">
-                <Dialog>
-                    <DialogTrigger asChild>
+                <DialogPrimitive.Root open={isModalOpen} onOpenChange={setIsModalOpen}>
+                    <DialogPrimitive.Trigger asChild>
                         <Button variant="outline" size="sm" className="h-8 text-[11px] gap-1.5 font-semibold bg-background/50 hover:bg-background">
                             <TerminalIcon className="w-3 h-3" /> View Modelfile & License
                         </Button>
-                    </DialogTrigger>
-                    <DialogContent showCloseButton={false} className="w-[95vw] sm:max-w-[90vw] max-h-[90vh] flex flex-col p-0 gap-0 border-border/40 shadow-2xl bg-background/95 backdrop-blur-xl overflow-hidden focus:outline-none">
-                        <DialogHeader className="p-6 border-b border-border/40 shrink-0 pr-16 relative">
-                            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-                                <TerminalIcon className="w-5 h-5 text-primary" />
-                                Model Specification: <span className="text-primary">{details.details.family}</span>
-                            </DialogTitle>
+                    </DialogPrimitive.Trigger>
 
-                            {/* Custom Close Button */}
-                            <div className="absolute top-6 right-6">
-                                <DialogPrimitive.Close className="ring-offset-background focus:ring-ring hover:bg-accent hover:text-accent-foreground rounded-full opacity-70 transition-all hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none p-2 border border-border/50">
-                                    <XIcon className="h-4 w-4" />
-                                    <span className="sr-only">Close</span>
-                                </DialogPrimitive.Close>
-                            </div>
-                        </DialogHeader>
+                    <AnimatePresence>
+                        {isModalOpen && (
+                            <DialogPrimitive.Portal forceMount>
+                                <DialogPrimitive.Overlay asChild forceMount>
+                                    <motion.div
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+                                    />
+                                </DialogPrimitive.Overlay>
+                                <DialogPrimitive.Content asChild forceMount>
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
+                                        animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
+                                        exit={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
+                                        transition={{ duration: 0.2, ease: "easeOut" }}
+                                        className="bg-background fixed top-[50%] left-[50%] z-50 flex flex-col w-[95vw] sm:max-w-[85vw] max-h-[90vh] rounded-xl border border-border/40 shadow-2xl outline-none overflow-hidden"
+                                    >
+                                        <div className="p-6 border-b border-border/40 flex items-center justify-between bg-muted/20 shrink-0">
+                                            <div className="flex items-center gap-2">
+                                                <TerminalIcon className="w-5 h-5 text-primary" />
+                                                <h2 className="text-xl font-bold">
+                                                    Model Specification: <span className="text-primary">{details.details.family}</span>
+                                                </h2>
+                                            </div>
 
-                        <ScrollArea className="flex-1 overflow-y-auto w-full">
-                            <div className="flex flex-col p-8 gap-10 pb-16 w-full max-w-full">
-                                {/* Modelfile Section */}
-                                <div className="space-y-4 w-full">
-                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
-                                        <FileTextIcon className="w-4 h-4 text-primary" /> Modelfile
-                                    </div>
-                                    <div className="rounded-xl border border-border/60 bg-black/40 p-6 relative group w-full overflow-hidden">
-                                        <pre className="text-sm font-mono text-blue-400 whitespace-pre-wrap break-all leading-relaxed selection:bg-primary/30 w-full">
-                                            {details.modelfile || 'No modelfile available.'}
-                                        </pre>
-                                    </div>
-                                </div>
-
-                                {/* License Section */}
-                                <div className="space-y-4 w-full">
-                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
-                                        <InfoIcon className="w-4 h-4 text-primary" /> License Information
-                                    </div>
-                                    <div className="rounded-xl border border-border/60 bg-muted/30 p-6 w-full">
-                                        <div className="text-sm text-muted-foreground leading-loose selection:bg-primary/20 whitespace-pre-wrap w-full font-serif">
-                                            {details.license || 'No license specified.'}
+                                            <DialogPrimitive.Close className="ring-offset-background focus:ring-ring hover:bg-accent hover:text-accent-foreground rounded-full opacity-70 transition-all hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none p-2 border border-border/50 bg-background/50">
+                                                <XIcon className="h-4 w-4" />
+                                                <span className="sr-only">Close</span>
+                                            </DialogPrimitive.Close>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </ScrollArea>
-                    </DialogContent>
-                </Dialog>
+
+                                        <ScrollArea className="flex-1 overflow-y-auto w-full">
+                                            <div className="flex flex-col p-8 gap-10 pb-16 w-full max-w-full">
+                                                {/* Modelfile Section */}
+                                                <div className="space-y-4 w-full">
+                                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
+                                                        <FileTextIcon className="w-4 h-4 text-primary" /> Modelfile
+                                                    </div>
+                                                    <div className="rounded-xl border border-border/60 bg-black/40 p-6 relative group w-full overflow-hidden">
+                                                        <pre className="text-sm font-mono text-blue-400 whitespace-pre-wrap break-all leading-relaxed selection:bg-primary/30 w-full">
+                                                            {details.modelfile || 'No modelfile available.'}
+                                                        </pre>
+                                                    </div>
+                                                </div>
+
+                                                {/* License Section */}
+                                                <div className="space-y-4 w-full">
+                                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
+                                                        <InfoIcon className="w-4 h-4 text-primary" /> License Information
+                                                    </div>
+                                                    <div className="rounded-xl border border-border/60 bg-muted/30 p-6 w-full">
+                                                        <div className="text-sm text-muted-foreground leading-loose selection:bg-primary/20 whitespace-pre-wrap w-full font-serif">
+                                                            {details.license || 'No license specified.'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </ScrollArea>
+                                    </motion.div>
+                                </DialogPrimitive.Content>
+                            </DialogPrimitive.Portal>
+                        )}
+                    </AnimatePresence>
+                </DialogPrimitive.Root>
             </div>
         </div>
     )
