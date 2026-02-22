@@ -28,8 +28,9 @@ import {
     AttachmentRemove,
 } from '@/components/ai-elements/attachments'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
-import { streamChat, showModel } from '@/lib/ollamaClient'
+import { showModel } from '@/lib/ollamaClient'
 import type { StreamDoneStats, OllamaModel } from '@/lib/ollamaClient'
+import AgentWorker from '@/workers/agentWorker?worker'
 import { SYSTEM_PROMPTS, PERSONALITIES, systemPromptList, personalityList } from '@/lib/prompts'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -202,7 +203,15 @@ const visionCapabilityCache: Record<string, boolean> = {}
 
 export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputUpdate, bulkSendSignal, fillRandomSignal }: SessionCardProps) => {
     const scrollRef = useRef<HTMLDivElement>(null)
-    const abortControllerRef = useRef<AbortController | null>(null)
+    const workerRef = useRef<Worker | null>(null)
+
+    // Setup Web Worker per session for strictly parallel execution
+    useEffect(() => {
+        workerRef.current = new AgentWorker()
+        return () => {
+            workerRef.current?.terminate()
+        }
+    }, [])
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -300,40 +309,30 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
             stats: undefined,
         })
 
-        abortControllerRef.current = new AbortController()
+        // Cancel previous if any
+        workerRef.current?.postMessage({ id: session.id, action: 'abort' })
 
-        const runAsync = async () => {
-            let finalContent = ''
-            let finalThinking = ''
+        const systemPrompt = SYSTEM_PROMPTS[session.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
+        const personality = PERSONALITIES[session.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
 
-            try {
-                const systemPrompt = SYSTEM_PROMPTS[session.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
-                const personality = PERSONALITIES[session.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
+        let finalContent = ''
+        let finalThinking = ''
+        let lastUpdateTime = Date.now()
 
-                const stream = streamChat({
-                    model: session.model,
-                    prompt: msg.text,
-                    images: apiImages.length > 0 ? apiImages : undefined,
-                    systemPrompt,
-                    personality,
-                    history,
-                    signal: abortControllerRef.current?.signal,
-                    format: session.mode === 'structured' ? 'json' : undefined,
-                })
+        workerRef.current!.onmessage = (e) => {
+            const { id, action, chunk, error } = e.data
+            if (id !== session.id) return
 
-                let lastUpdateTime = Date.now()
-                for await (const chunk of stream) {
-                    if (chunk.done) {
-                        onUpdate(session.id, (prev: SessionState) => ({
-                            stats: chunk as StreamDoneStats,
-                            isGenerating: false,
-                            messages: prev.messages.map((m: ChatMessage) =>
-                                m.id === assistantMsgId ? { ...m, isStreaming: false, content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, thinking: finalThinking } : m
-                            )
-                        }))
-                        break
-                    }
-
+            if (action === 'chunk') {
+                if (chunk.done) {
+                    onUpdate(session.id, (prev: SessionState) => ({
+                        stats: chunk as StreamDoneStats,
+                        isGenerating: false,
+                        messages: prev.messages.map((m: ChatMessage) =>
+                            m.id === assistantMsgId ? { ...m, isStreaming: false, content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, thinking: finalThinking } : m
+                        )
+                    }))
+                } else {
                     finalContent += chunk.content
                     if (chunk.thinking) finalThinking += chunk.thinking
 
@@ -355,30 +354,37 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         })
                     }
                 }
-            } catch (err: unknown) {
-                const e = err as Error
-                if (e.name !== 'AbortError') {
-                    finalContent += '\n\n**Error:** ' + e.message
-                    onUpdate(session.id, (prev: SessionState) => {
-                        const temp = [...prev.messages]
-                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                        if (lastIdx !== -1) {
-                            temp[lastIdx] = { ...temp[lastIdx], content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, isStreaming: false }
-                        }
-                        return { isGenerating: false, messages: temp }
-                    })
-                }
+            } else if (action === 'error') {
+                finalContent += '\n\n**Error:** ' + error
+                onUpdate(session.id, (prev: SessionState) => {
+                    const temp = [...prev.messages]
+                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                    if (lastIdx !== -1) {
+                        temp[lastIdx] = { ...temp[lastIdx], content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, isStreaming: false }
+                    }
+                    return { isGenerating: false, messages: temp }
+                })
             }
         }
 
-        runAsync()
+        workerRef.current!.postMessage({
+            id: session.id,
+            action: 'start',
+            payload: {
+                model: session.model,
+                prompt: msg.text,
+                images: apiImages.length > 0 ? apiImages : undefined,
+                systemPrompt,
+                personality,
+                history,
+                format: session.mode === 'structured' ? 'json' : undefined,
+            }
+        })
     }, [session.id, session.messages, session.model, session.systemPromptId, session.personalityId, session.mode, onUpdate])
 
     const handleStop = useCallback(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
-            onUpdate(session.id, { isGenerating: false })
-        }
+        workerRef.current?.postMessage({ id: session.id, action: 'abort' })
+        onUpdate(session.id, { isGenerating: false })
     }, [session.id, onUpdate])
 
     const handleClear = useCallback(() => {

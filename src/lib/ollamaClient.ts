@@ -256,6 +256,7 @@ export async function* streamChat(
             model: opts.model,
             messages: buildMessages(opts),
             stream: true,
+            keep_alive: -1,
             ...(opts.format ? { format: opts.format } : {}),
             ...(opts.options ? { options: opts.options } : {}),
         }),
