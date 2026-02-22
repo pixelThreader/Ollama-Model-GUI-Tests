@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
 import {
   createContext,
   memo,
@@ -93,8 +93,8 @@ const LineSpan = ({
     {keyedLine.tokens.length === 0
       ? "\n"
       : keyedLine.tokens.map(({ token, key }) => (
-          <TokenSpan key={key} token={token} />
-        ))}
+        <TokenSpan key={key} token={token} />
+      ))}
   </span>
 );
 
@@ -163,11 +163,11 @@ const createRawTokens = (code: string): TokenizedCode => ({
     line === ""
       ? []
       : [
-          {
-            color: "inherit",
-            content: line,
-          } as ThemedToken,
-        ]
+        {
+          color: "inherit",
+          content: line,
+        } as ThemedToken,
+      ]
   ),
 });
 
@@ -276,14 +276,14 @@ const CodeBlockBody = memo(
     return (
       <pre
         className={cn(
-          "dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)] m-0 p-4 text-sm",
+          "dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)] m-0 p-4 text-sm overflow-hidden",
           className
         )}
         style={preStyle}
       >
         <code
           className={cn(
-            "font-mono text-sm",
+            "font-mono text-sm block min-w-full w-fit",
             showLineNumbers && "[counter-increment:line_0] [counter-reset:line]"
           )}
         >
@@ -306,27 +306,6 @@ const CodeBlockBody = memo(
 
 CodeBlockBody.displayName = "CodeBlockBody";
 
-export const CodeBlockContainer = ({
-  className,
-  language,
-  style,
-  ...props
-}: HTMLAttributes<HTMLDivElement> & { language: string }) => (
-  <div
-    className={cn(
-      "group relative w-full overflow-hidden rounded-md border bg-background text-foreground",
-      className
-    )}
-    data-language={language}
-    style={{
-      containIntrinsicSize: "auto 200px",
-      contentVisibility: "auto",
-      ...style,
-    }}
-    {...props}
-  />
-);
-
 export const CodeBlockHeader = ({
   children,
   className,
@@ -334,7 +313,7 @@ export const CodeBlockHeader = ({
 }: HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex items-center justify-between border-b bg-muted/80 px-3 py-2 text-muted-foreground text-xs",
+      "flex items-center justify-between border-b bg-muted/50 px-3 py-1.5 text-muted-foreground text-xs backdrop-blur-sm rounded-t-3xl",
       className
     )}
     {...props}
@@ -412,11 +391,32 @@ export const CodeBlockContent = ({
   }, [code, language, rawTokens]);
 
   return (
-    <div className="relative overflow-auto">
+    <div className="relative overflow-x-auto overflow-y-hidden thin-scrollbar">
       <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
     </div>
   );
 };
+
+export const CodeBlockContainer = ({
+  className,
+  language,
+  style,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { language: string }) => (
+  <div
+    className={cn(
+      "group relative w-full overflow-hidden rounded-xl border bg-card/50 text-card-foreground",
+      className
+    )}
+    data-language={language}
+    style={{
+      containIntrinsicSize: "auto 200px",
+      contentVisibility: "auto",
+      ...style,
+    }}
+    {...props}
+  />
+);
 
 export const CodeBlock = ({
   code,
@@ -492,13 +492,53 @@ export const CodeBlockCopyButton = ({
 
   return (
     <Button
-      className={cn("shrink-0", className)}
+      className={cn("shrink-0 h-7 w-7", className)}
       onClick={copyToClipboard}
       size="icon"
       variant="ghost"
+      title="Copy code"
       {...props}
     >
-      {children ?? <Icon size={14} />}
+      <Icon size={14} />
+      <span className="sr-only">Copy</span>
+    </Button>
+  );
+};
+
+export type CodeBlockDownloadButtonProps = ComponentProps<typeof Button> & {
+  filename?: string;
+};
+
+export const CodeBlockDownloadButton = ({
+  filename,
+  className,
+  ...props
+}: CodeBlockDownloadButtonProps) => {
+  const { code } = useContext(CodeBlockContext);
+
+  const downloadCode = useCallback(() => {
+    const blob = new Blob([code], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "code.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [code, filename]);
+
+  return (
+    <Button
+      className={cn("shrink-0 h-7 w-7", className)}
+      onClick={downloadCode}
+      size="icon"
+      variant="ghost"
+      title="Download code"
+      {...props}
+    >
+      <DownloadIcon size={14} />
+      <span className="sr-only">Download</span>
     </Button>
   );
 };

@@ -19,7 +19,7 @@ import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, TerminalIcon } from "lucide-react";
 import {
   createContext,
   memo,
@@ -30,6 +30,14 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockDownloadButton,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "./code-block";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -322,7 +330,39 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
+const MarkdownCode = ({ children, className }: any) => {
+  const language = className?.replace("language-", "") || "text";
+  const codeContent = String(children).replace(/\n$/, "");
+
+  // Inline code
+  if (!className) {
+    return (
+      <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-sm">
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <CodeBlock className="my-4 overflow-hidden" code={codeContent} language={language}>
+      <CodeBlockHeader>
+        <CodeBlockTitle>
+          <TerminalIcon className="size-3.5" />
+          <span className="font-mono">{language}</span>
+        </CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockDownloadButton filename={`code.${language}`} />
+          <CodeBlockCopyButton />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+    </CodeBlock>
+  );
+};
+
 const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownComponents = {
+  code: MarkdownCode,
+};
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
@@ -331,6 +371,7 @@ export const MessageResponse = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      components={streamdownComponents}
       plugins={streamdownPlugins}
       {...props}
     />

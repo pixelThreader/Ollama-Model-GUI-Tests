@@ -270,7 +270,7 @@ const Home = () => {
             <div className="container mx-auto py-12 px-4 space-y-12 z-0 mt-8">
 
                 {/* Hero Section */}
-                <div className="space-y-4 text-center max-w-3xl mx-auto">
+                <div className="space-y-8 text-center max-w-4xl mx-auto mb-20">
 
                     <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-foreground">
                         Stress Test Your <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-blue-600">Local LLMs</span>
