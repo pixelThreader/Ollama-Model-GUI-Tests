@@ -31,6 +31,7 @@ interface DefaultConfigModalProps {
 
 export function DefaultConfigModal({ config, models, onSave }: DefaultConfigModalProps) {
     const [localConfig, setLocalConfig] = useState<DefaultConfig>(config)
+    const [isOpen, setIsOpen] = useState(false)
 
     useEffect(() => {
         setLocalConfig(config)
@@ -39,10 +40,11 @@ export function DefaultConfigModal({ config, models, onSave }: DefaultConfigModa
     const handleSave = () => {
         onSave(localConfig)
         toast.success('Default configuration saved')
+        setIsOpen(false)
     }
 
     return (
-        <Dialog>
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2 border-border/50 h-8">
                     <Settings2Icon className="h-4 w-4" />
