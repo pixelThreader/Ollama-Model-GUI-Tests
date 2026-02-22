@@ -14,7 +14,7 @@ export interface DefaultConfig {
     model: string
     systemPromptId: string
     personalityId: string
-    mode: 'stream' | 'generate'
+    mode: 'stream' | 'generate' | 'structured'
     prompt: string
 }
 
@@ -140,7 +140,7 @@ export function DefaultConfigModal({ config, models, onSave }: DefaultConfigModa
                                         <Label htmlFor="mode">Execution Mode</Label>
                                         <Select
                                             value={localConfig.mode}
-                                            onValueChange={(val: 'stream' | 'generate') => setLocalConfig(prev => ({ ...prev, mode: val }))}
+                                            onValueChange={(val: 'stream' | 'generate' | 'structured') => setLocalConfig(prev => ({ ...prev, mode: val }))}
                                         >
                                             <SelectTrigger id="mode">
                                                 <SelectValue placeholder="Mode" />
@@ -148,6 +148,7 @@ export function DefaultConfigModal({ config, models, onSave }: DefaultConfigModa
                                             <SelectContent>
                                                 <SelectItem value="stream">Stream (Update as it generates)</SelectItem>
                                                 <SelectItem value="generate">Generate (Wait for full response)</SelectItem>
+                                                <SelectItem value="structured">Structured (JSON output)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>

@@ -32,6 +32,8 @@ export interface ChatOptions {
     images?: string[]
     /** Model-level options (temperature, top_p, num_ctx …) */
     options?: Record<string, unknown>
+    /** Enforce JSON or JSON schema structured output */
+    format?: 'json' | Record<string, unknown>
     /** AbortSignal so the caller can cancel mid-stream */
     signal?: AbortSignal
 }
@@ -42,6 +44,7 @@ export interface GenerateOptions {
     systemPrompt?: string
     images?: string[]
     options?: Record<string, unknown>
+    format?: 'json' | Record<string, unknown>
     signal?: AbortSignal
 }
 
@@ -253,6 +256,7 @@ export async function* streamChat(
             model: opts.model,
             messages: buildMessages(opts),
             stream: true,
+            ...(opts.format ? { format: opts.format } : {}),
             ...(opts.options ? { options: opts.options } : {}),
         }),
         signal: opts.signal,

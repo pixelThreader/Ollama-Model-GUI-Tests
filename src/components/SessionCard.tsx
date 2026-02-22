@@ -51,7 +51,7 @@ export type SessionState = {
     model: string
     systemPromptId: string
     personalityId: string
-    mode: 'stream' | 'generate'
+    mode: 'stream' | 'generate' | 'structured'
     messages: ChatMessage[]
     stats?: StreamDoneStats
     isGenerating: boolean
@@ -107,8 +107,10 @@ function BulkReceiver({ signal, onSend }: { signal: number, onSend: (msg: Prompt
             lastProcessedSignal.current = signal
             const text = controller.textInput.value.trim()
             if (text) {
-                onSend({ text, files: [] })
+                const files = [...controller.attachments.files]
+                onSend({ text, files })
                 controller.textInput.clear()
+                controller.attachments.clear()
             }
         }
     }, [signal, onSend, controller])
@@ -228,7 +230,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
 
     const isVisionModel = hasVision
 
-    const handleSend = useCallback(async (msg: PromptInputMessage) => {
+    const handleSend = useCallback((msg: PromptInputMessage) => {
         if (!msg.text.trim()) return
 
         // Convert files to base64 if any
@@ -272,73 +274,78 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
 
         abortControllerRef.current = new AbortController()
 
-        let finalContent = ''
-        let finalThinking = ''
+        const runAsync = async () => {
+            let finalContent = ''
+            let finalThinking = ''
 
-        try {
-            const systemPrompt = SYSTEM_PROMPTS[session.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
-            const personality = PERSONALITIES[session.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
+            try {
+                const systemPrompt = SYSTEM_PROMPTS[session.systemPromptId as keyof typeof SYSTEM_PROMPTS]?.prompt || ''
+                const personality = PERSONALITIES[session.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
 
-            const stream = streamChat({
-                model: session.model,
-                prompt: msg.text,
-                images: images,
-                systemPrompt,
-                personality,
-                history,
-                signal: abortControllerRef.current.signal,
-            })
+                const stream = streamChat({
+                    model: session.model,
+                    prompt: msg.text,
+                    images: images,
+                    systemPrompt,
+                    personality,
+                    history,
+                    signal: abortControllerRef.current?.signal,
+                    format: session.mode === 'structured' ? 'json' : undefined,
+                })
 
-            let chunkCount = 0
-            for await (const chunk of stream) {
-                chunkCount++
-                if (chunk.done) {
-                    onUpdate(session.id, (prev: SessionState) => ({
-                        stats: chunk as StreamDoneStats,
-                        isGenerating: false,
-                        messages: prev.messages.map((m: ChatMessage) =>
-                            m.id === assistantMsgId ? { ...m, isStreaming: false, content: finalContent, thinking: finalThinking } : m
-                        )
-                    }))
-                    break
-                }
+                let chunkCount = 0
+                for await (const chunk of stream) {
+                    chunkCount++
+                    if (chunk.done) {
+                        onUpdate(session.id, (prev: SessionState) => ({
+                            stats: chunk as StreamDoneStats,
+                            isGenerating: false,
+                            messages: prev.messages.map((m: ChatMessage) =>
+                                m.id === assistantMsgId ? { ...m, isStreaming: false, content: finalContent, thinking: finalThinking } : m
+                            )
+                        }))
+                        break
+                    }
 
-                finalContent += chunk.content
-                if (chunk.thinking) finalThinking += chunk.thinking
+                    finalContent += chunk.content
+                    if (chunk.thinking) finalThinking += chunk.thinking
 
-                onUpdate(session.id, (prev: SessionState) => {
-                    if (prev.mode === 'generate') return {}
-                    const temp = [...prev.messages]
-                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                    if (lastIdx !== -1) {
-                        temp[lastIdx] = {
-                            ...temp[lastIdx],
-                            content: finalContent,
-                            thinking: finalThinking,
+                    onUpdate(session.id, (prev: SessionState) => {
+                        if (prev.mode === 'generate') return {}
+                        const temp = [...prev.messages]
+                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                        if (lastIdx !== -1) {
+                            temp[lastIdx] = {
+                                ...temp[lastIdx],
+                                content: finalContent,
+                                thinking: finalThinking,
+                            }
                         }
-                    }
-                    return { messages: temp }
-                })
+                        return { messages: temp }
+                    })
 
-                if (chunkCount % 2 === 0) {
-                    await new Promise(r => setTimeout(r, 0))
-                }
-            }
-        } catch (err: unknown) {
-            const e = err as Error
-            if (e.name !== 'AbortError') {
-                finalContent += '\n\n**Error:** ' + e.message
-                onUpdate(session.id, (prev: SessionState) => {
-                    const temp = [...prev.messages]
-                    const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
-                    if (lastIdx !== -1) {
-                        temp[lastIdx] = { ...temp[lastIdx], content: finalContent, isStreaming: false }
+                    if (chunkCount % 2 === 0) {
+                        await new Promise(r => setTimeout(r, 0))
                     }
-                    return { isGenerating: false, messages: temp }
-                })
+                }
+            } catch (err: unknown) {
+                const e = err as Error
+                if (e.name !== 'AbortError') {
+                    finalContent += '\n\n**Error:** ' + e.message
+                    onUpdate(session.id, (prev: SessionState) => {
+                        const temp = [...prev.messages]
+                        const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
+                        if (lastIdx !== -1) {
+                            temp[lastIdx] = { ...temp[lastIdx], content: finalContent, isStreaming: false }
+                        }
+                        return { isGenerating: false, messages: temp }
+                    })
+                }
             }
         }
-    }, [session.id, session.messages, session.model, session.systemPromptId, session.personalityId, onUpdate])
+
+        runAsync()
+    }, [session.id, session.messages, session.model, session.systemPromptId, session.personalityId, session.mode, onUpdate])
 
     const handleStop = useCallback(() => {
         if (abortControllerRef.current) {
@@ -412,7 +419,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                     </Select>
                     <Select
                         value={session.mode || 'stream'}
-                        onValueChange={(val: 'stream' | 'generate') => onUpdate(session.id, { mode: val })}
+                        onValueChange={(val: 'stream' | 'generate' | 'structured') => onUpdate(session.id, { mode: val })}
                     >
                         <SelectTrigger className="w-[100px] h-7 text-[11px]">
                             <SelectValue placeholder="Mode" />
@@ -420,6 +427,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         <SelectContent>
                             <SelectItem value="stream" className="text-[11px]">Stream</SelectItem>
                             <SelectItem value="generate" className="text-[11px]">Generate</SelectItem>
+                            <SelectItem value="structured" className="text-[11px]">Structured</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
