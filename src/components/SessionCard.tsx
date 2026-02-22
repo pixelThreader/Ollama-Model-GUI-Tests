@@ -183,24 +183,34 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         }
     }, [session.messages])
 
-    const [hasVision, setHasVision] = useState(() => {
+    const [hasVision, setHasVision] = useState(false)
+
+    useEffect(() => {
+        if (!session.model) {
+            setHasVision(false)
+            return
+        }
+
         // Fast path: check names first
         const low = session.model.toLowerCase()
         if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
-            return true
+            setHasVision(true)
+            return
         }
+
         // Then check tags if they exist
         const selected = models.find(m => m.name === session.model)
         const inTags = selected?.details?.families?.includes('vision') || false
-        if (inTags) return true
+        if (inTags) {
+            setHasVision(true)
+            return
+        }
 
         // Return cached value if any
-        return visionCapabilityCache[session.model] || false
-    })
-
-    useEffect(() => {
-        if (hasVision) return
-        if (!session.model) return
+        if (session.model in visionCapabilityCache) {
+            setHasVision(visionCapabilityCache[session.model] || false)
+            return
+        }
 
         let mounted = true
         showModel(session.model).then(details => {
@@ -208,12 +218,13 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                 details.capabilities?.includes('vision') ||
                 false
             visionCapabilityCache[session.model] = isVision
-            if (mounted && isVision) setHasVision(true)
+            if (mounted) setHasVision(isVision)
         }).catch(() => {
             // Silently ignore failures, might be a network glitch
+            if (mounted) setHasVision(false)
         })
         return () => { mounted = false }
-    }, [session.model, hasVision])
+    }, [session.model, models])
 
     const isVisionModel = hasVision
 
