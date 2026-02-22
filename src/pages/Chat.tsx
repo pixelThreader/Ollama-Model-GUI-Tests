@@ -65,6 +65,27 @@ const Chat = () => {
         return () => { mounted = false }
     }, [])
 
+    const searchParams = Route.useSearch()
+    const [hasAutoStarted, setHasAutoStarted] = useState(false)
+
+    useEffect(() => {
+        if (!isLoadingModels && models.length > 0 && searchParams.workers && searchParams.model && !hasAutoStarted && sessions.length === 0) {
+            const workersCount = Number(searchParams.workers)
+            if (workersCount > 0) {
+                const newSessions: SessionConfig[] = Array.from({ length: workersCount }).map(() => ({
+                    id: nanoid(),
+                    model: searchParams.model || '',
+                    systemPromptId: defaultConfig.systemPromptId,
+                    personalityId: defaultConfig.personalityId,
+                    mode: defaultConfig.mode,
+                    initialPrompt: defaultConfig.prompt,
+                }))
+                setSessions(newSessions)
+                setHasAutoStarted(true)
+            }
+        }
+    }, [isLoadingModels, models, searchParams, hasAutoStarted, sessions.length, defaultConfig])
+
     const handleAddSession = useCallback(() => {
         const newSession: SessionConfig = {
             id: nanoid(),
@@ -240,4 +261,10 @@ const Chat = () => {
 
 export const Route = createFileRoute('/chat')({
     component: Chat,
+    validateSearch: (search: Record<string, unknown>) => {
+        return {
+            workers: search.workers ? Number(search.workers) : undefined,
+            model: (search.model as string) || undefined,
+        }
+    }
 })

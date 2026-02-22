@@ -353,10 +353,27 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
         }
     }, [])
 
-    // Auto-scroll to bottom (debounced via rAF)
+    // Auto-scroll to bottom (only if already near bottom to avoid fighting the user)
+    // Removed scroll-smooth from CardContent to prevent layout and render thrashing
+    const isUserScrolledUpRef = useRef(false)
+
     useEffect(() => {
         const el = scrollRef.current
-        if (el) {
+        if (!el) return
+
+        const handleScroll = () => {
+            // Check if user has scrolled up more than ~50px from the bottom
+            const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+            isUserScrolledUpRef.current = !isNearBottom
+        }
+
+        el.addEventListener('scroll', handleScroll, { passive: true })
+        return () => el.removeEventListener('scroll', handleScroll)
+    }, [])
+
+    useEffect(() => {
+        const el = scrollRef.current
+        if (el && !isUserScrolledUpRef.current) {
             requestAnimationFrame(() => {
                 el.scrollTop = el.scrollHeight
             })
@@ -571,7 +588,7 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                 </div>
             </CardHeader>
 
-            <CardContent className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth" ref={scrollRef}>
+            <CardContent className="flex-1 overflow-y-auto p-4 space-y-6" ref={scrollRef}>
                 {messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 space-y-2">
                         <div className="p-3 rounded-full bg-muted">
