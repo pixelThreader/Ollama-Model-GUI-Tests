@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────
 //  Ollama Client — async, concurrent-safe, streaming-first
-//  Talks directly to the local Ollama REST API (localhost:11434)
+//  Talks directly using the official Ollama SDK
 // ─────────────────────────────────────────────────────────────
+import { Ollama } from 'ollama/browser'
 
 const OLLAMA_BASE = 'http://localhost:11434'
 
@@ -178,41 +179,13 @@ function buildMessages(opts: ChatOptions): ChatMessage[] {
 }
 
 /**
- * Read an NDJSON (newline-delimited JSON) stream and yield parsed objects.
- * Works with any ReadableStream<Uint8Array> — fully async.
+ * Helper to build an Ollama client that attaches the given AbortSignal.
  */
-async function* readNDJSON<T = unknown>(
-    stream: ReadableStream<Uint8Array>,
-): AsyncGenerator<T> {
-    const reader = stream.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    try {
-        while (true) {
-            const { value, done } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            // Keep the last (potentially incomplete) chunk in the buffer
-            buffer = lines.pop() ?? ''
-
-            for (const line of lines) {
-                const trimmed = line.trim()
-                if (trimmed.length === 0) continue
-                yield JSON.parse(trimmed) as T
-            }
-        }
-
-        // Flush any remaining data
-        const remaining = buffer.trim()
-        if (remaining.length > 0) {
-            yield JSON.parse(remaining) as T
-        }
-    } finally {
-        reader.releaseLock()
-    }
+function getClient(signal?: AbortSignal): Ollama {
+    return new Ollama({
+        host: OLLAMA_BASE,
+        fetch: (url, init) => fetch(url, { ...init, signal })
+    })
 }
 
 /**
@@ -249,47 +222,37 @@ export function fileToBase64(file: File | Blob): Promise<string> {
 export async function* streamChat(
     opts: ChatOptions,
 ): AsyncGenerator<StreamChunk & Partial<StreamDoneStats>> {
-    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: opts.model,
-            messages: buildMessages(opts),
-            stream: true,
-            keep_alive: -1,
-            ...(opts.format ? { format: opts.format } : {}),
-            ...(opts.options ? { options: opts.options } : {}),
-        }),
-        signal: opts.signal,
+    const client = getClient(opts.signal)
+
+    // Mapping format for SDK usage 
+    const isStructured = opts.format && typeof opts.format === 'object'
+
+    const stream = await client.chat({
+        model: opts.model,
+        messages: buildMessages(opts),
+        stream: true,
+        keep_alive: -1,
+        ...(opts.format ? { format: isStructured ? (opts.format as Record<string, unknown>) : opts.format } : {}),
+        ...(opts.options ? { options: opts.options } : {}),
     })
 
-    if (!res.ok) {
-        const text = await res.text()
-        throw new Error(`Ollama /api/chat failed (${res.status}): ${text}`)
-    }
-
-    if (!res.body) throw new Error('Response body is null')
-
-    for await (const raw of readNDJSON<Record<string, unknown>>(res.body)) {
-        const msg = (raw.message ?? {}) as Record<string, unknown>
-
-        const chunk: StreamChunk & Partial<StreamDoneStats> = {
-            content: (msg.content as string) ?? '',
-            thinking: (msg.thinking as string) ?? '',
-            done: (raw.done as boolean) ?? false,
+    for await (const chunk of stream) {
+        const out: StreamChunk & Partial<StreamDoneStats> = {
+            content: chunk.message?.content ?? '',
+            thinking: chunk.message?.thinking ?? '',
+            done: chunk.done ?? false,
         }
 
-        // When done, attach perf stats
         if (chunk.done) {
-            chunk.totalDuration = raw.total_duration as number
-            chunk.loadDuration = raw.load_duration as number
-            chunk.promptEvalCount = raw.prompt_eval_count as number
-            chunk.promptEvalDuration = raw.prompt_eval_duration as number
-            chunk.evalCount = raw.eval_count as number
-            chunk.evalDuration = raw.eval_duration as number
+            out.totalDuration = chunk.total_duration
+            out.loadDuration = chunk.load_duration
+            out.promptEvalCount = chunk.prompt_eval_count
+            out.promptEvalDuration = chunk.prompt_eval_duration
+            out.evalCount = chunk.eval_count
+            out.evalDuration = chunk.eval_duration
         }
 
-        yield chunk
+        yield out
     }
 }
 
@@ -302,38 +265,29 @@ export async function* streamChat(
 export async function generate(
     opts: GenerateOptions,
 ): Promise<GenerateResponse> {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: opts.model,
-            prompt: opts.prompt,
-            stream: false,
-            ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
-            ...(opts.images?.length ? { images: opts.images } : {}),
-            ...(opts.options ? { options: opts.options } : {}),
-        }),
-        signal: opts.signal,
+    const client = getClient(opts.signal)
+
+    const res = await client.generate({
+        model: opts.model,
+        prompt: opts.prompt,
+        stream: false,
+        ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
+        ...(opts.images?.length ? { images: opts.images } : {}),
+        ...(opts.options ? { options: opts.options } : {}),
+        ...(opts.format ? { format: opts.format as Record<string, unknown> | string } : {}),
     })
 
-    if (!res.ok) {
-        const text = await res.text()
-        throw new Error(`Ollama /api/generate failed (${res.status}): ${text}`)
-    }
-
-    const data = await res.json()
-
     return {
-        model: data.model,
-        response: data.response ?? '',
-        thinking: data.thinking ?? '',
-        done: data.done,
-        totalDuration: data.total_duration ?? 0,
-        loadDuration: data.load_duration ?? 0,
-        promptEvalCount: data.prompt_eval_count ?? 0,
-        promptEvalDuration: data.prompt_eval_duration ?? 0,
-        evalCount: data.eval_count ?? 0,
-        evalDuration: data.eval_duration ?? 0,
+        model: res.model,
+        response: res.response ?? '',
+        thinking: res.thinking ?? '',
+        done: res.done ?? true,
+        totalDuration: res.total_duration ?? 0,
+        loadDuration: res.load_duration ?? 0,
+        promptEvalCount: res.prompt_eval_count ?? 0,
+        promptEvalDuration: res.prompt_eval_duration ?? 0,
+        evalCount: res.eval_count ?? 0,
+        evalDuration: res.eval_duration ?? 0,
     }
 }
 
@@ -359,6 +313,7 @@ export async function generate(
 export async function generateStructured<T = unknown>(
     opts: StructuredOutputOptions<T>,
 ): Promise<T> {
+    const client = getClient(opts.signal)
     const messages: ChatMessage[] = []
 
     if (opts.systemPrompt) {
@@ -374,28 +329,15 @@ export async function generateStructured<T = unknown>(
     }
     messages.push(userMsg)
 
-    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: opts.model,
-            messages,
-            stream: false,
-            format: opts.format,
-            ...(opts.options ? { options: opts.options } : {}),
-        }),
-        signal: opts.signal,
+    const res = await client.chat({
+        model: opts.model,
+        messages,
+        stream: false,
+        format: opts.format as Record<string, unknown> | string,
+        ...(opts.options ? { options: opts.options } : {}),
     })
 
-    if (!res.ok) {
-        const text = await res.text()
-        throw new Error(
-            `Ollama /api/chat (structured) failed (${res.status}): ${text}`,
-        )
-    }
-
-    const data = await res.json()
-    const raw: string = data.message?.content ?? ''
+    const raw: string = res.message?.content ?? ''
     const parse = opts.parse ?? ((s: string) => JSON.parse(s) as T)
 
     return parse(raw)
@@ -407,20 +349,18 @@ export async function generateStructured<T = unknown>(
 export async function listModels(
     signal?: AbortSignal,
 ): Promise<OllamaModel[]> {
-    const res = await fetch(`${OLLAMA_BASE}/api/tags`, { signal })
-    if (!res.ok) throw new Error(`Failed to list models (${res.status})`)
-    const data = await res.json()
-    return data.models ?? []
+    const client = getClient(signal)
+    const res = await client.list()
+    return (res.models ?? []) as unknown as OllamaModel[]
 }
 
 /** Fetch currently running (loaded in RAM/VRAM) models. */
 export async function listRunningModels(
     signal?: AbortSignal,
 ): Promise<RunningModel[]> {
-    const res = await fetch(`${OLLAMA_BASE}/api/ps`, { signal })
-    if (!res.ok) throw new Error(`Failed to list running models (${res.status})`)
-    const data = await res.json()
-    return data.models ?? []
+    const client = getClient(signal)
+    const res = await client.ps()
+    return (res.models ?? []) as unknown as RunningModel[]
 }
 
 /** Unload a model from memory. */
@@ -428,13 +368,8 @@ export async function unloadModel(
     model: string,
     signal?: AbortSignal,
 ): Promise<void> {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, keep_alive: 0 }),
-        signal,
-    })
-    if (!res.ok) throw new Error(`Failed to unload model (${res.status})`)
+    const client = getClient(signal)
+    await client.generate({ model, prompt: '', keep_alive: 0 })
 }
 
 /** Fetch detailed info about a specific model. */
@@ -442,14 +377,9 @@ export async function showModel(
     model: string,
     signal?: AbortSignal,
 ): Promise<ModelDetails> {
-    const res = await fetch(`${OLLAMA_BASE}/api/show`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-        signal,
-    })
-    if (!res.ok) throw new Error(`Failed to show model (${res.status})`)
-    return res.json()
+    const client = getClient(signal)
+    const res = await client.show({ model })
+    return res as unknown as ModelDetails
 }
 
 /** Generate vector embeddings for a piece of text. */
@@ -458,22 +388,16 @@ export async function embed(
     input: string | string[],
     signal?: AbortSignal,
 ): Promise<EmbedResponse> {
-    const res = await fetch(`${OLLAMA_BASE}/api/embed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input }),
-        signal,
-    })
-    if (!res.ok) throw new Error(`Failed to create embeddings (${res.status})`)
-    return res.json()
+    const client = getClient(signal)
+    const res = await client.embed({ model, input })
+    return res as unknown as EmbedResponse
 }
 
 /** Get the Ollama server version string. */
 export async function getVersion(signal?: AbortSignal): Promise<string> {
-    const res = await fetch(`${OLLAMA_BASE}/api/version`, { signal })
-    if (!res.ok) throw new Error(`Failed to get version (${res.status})`)
-    const data = await res.json()
-    return data.version
+    const client = getClient(signal)
+    const res = await client.version()
+    return res.version
 }
 
 /** Quick health-check: returns true if the Ollama server is reachable. */

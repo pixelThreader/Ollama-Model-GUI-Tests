@@ -223,43 +223,49 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
     const [hasVision, setHasVision] = useState(false)
 
     useEffect(() => {
-        if (!session.model) {
-            setHasVision(false)
-            return
-        }
-
-        // Fast path: check names first
-        const low = session.model.toLowerCase()
-        if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
-            setHasVision(true)
-            return
-        }
-
-        // Then check tags if they exist
-        const selected = models.find(m => m.name === session.model)
-        const inTags = selected?.details?.families?.includes('vision') || false
-        if (inTags) {
-            setHasVision(true)
-            return
-        }
-
-        // Return cached value if any
-        if (session.model in visionCapabilityCache) {
-            setHasVision(visionCapabilityCache[session.model] || false)
-            return
-        }
-
         let mounted = true
-        showModel(session.model).then(details => {
-            const isVision = details.details?.families?.includes('vision') ||
-                details.capabilities?.includes('vision') ||
-                false
-            visionCapabilityCache[session.model] = isVision
-            if (mounted) setHasVision(isVision)
-        }).catch(() => {
-            // Silently ignore failures, might be a network glitch
-            if (mounted) setHasVision(false)
-        })
+
+        const checkVision = async () => {
+            if (!session.model) {
+                if (mounted) setHasVision(false)
+                return
+            }
+
+            // Fast path: check names first
+            const low = session.model.toLowerCase()
+            if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
+                if (mounted) setHasVision(true)
+                return
+            }
+
+            // Then check tags if they exist
+            const selected = models.find(m => m.name === session.model)
+            const inTags = selected?.details?.families?.includes('vision') || false
+            if (inTags) {
+                if (mounted) setHasVision(true)
+                return
+            }
+
+            // Return cached value if any
+            if (session.model in visionCapabilityCache) {
+                if (mounted) setHasVision(visionCapabilityCache[session.model] || false)
+                return
+            }
+
+            try {
+                const details = await showModel(session.model)
+                const isVision = details.details?.families?.includes('vision') ||
+                    details.capabilities?.includes('vision') ||
+                    false
+                visionCapabilityCache[session.model] = isVision
+                if (mounted) setHasVision(isVision)
+            } catch {
+                if (mounted) setHasVision(false)
+            }
+        }
+
+        checkVision()
+
         return () => { mounted = false }
     }, [session.model, models])
 
