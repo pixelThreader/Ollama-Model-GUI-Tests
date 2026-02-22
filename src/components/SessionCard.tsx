@@ -255,7 +255,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
         const initialAssistantMessage: ChatMessage = {
             id: assistantMsgId,
             role: 'assistant',
-            content: '',
+            content: session.mode === 'structured' ? '```json\n\n```' : '',
             thinking: '',
             isStreaming: true,
         }
@@ -301,7 +301,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                             stats: chunk as StreamDoneStats,
                             isGenerating: false,
                             messages: prev.messages.map((m: ChatMessage) =>
-                                m.id === assistantMsgId ? { ...m, isStreaming: false, content: finalContent, thinking: finalThinking } : m
+                                m.id === assistantMsgId ? { ...m, isStreaming: false, content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, thinking: finalThinking } : m
                             )
                         }))
                         break
@@ -317,7 +317,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         if (lastIdx !== -1) {
                             temp[lastIdx] = {
                                 ...temp[lastIdx],
-                                content: finalContent,
+                                content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent,
                                 thinking: finalThinking,
                             }
                         }
@@ -336,7 +336,7 @@ export const SessionCard = memo(({ session, models, onUpdate, onRemove, onInputU
                         const temp = [...prev.messages]
                         const lastIdx = temp.findIndex((m: ChatMessage) => m.id === assistantMsgId)
                         if (lastIdx !== -1) {
-                            temp[lastIdx] = { ...temp[lastIdx], content: finalContent, isStreaming: false }
+                            temp[lastIdx] = { ...temp[lastIdx], content: prev.mode === 'structured' ? `\`\`\`json\n${finalContent}\n\`\`\`` : finalContent, isStreaming: false }
                         }
                         return { isGenerating: false, messages: temp }
                     })
