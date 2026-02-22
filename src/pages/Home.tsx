@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { listModels, showModel, type OllamaModel, type ModelDetails } from '@/lib/ollamaClient'
 import { Dialog as DialogPrimitive } from "radix-ui"
 import { AnimatePresence, motion } from "framer-motion"
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { ActivityIcon, CpuIcon, LayersIcon, ZapIcon, InfoIcon, ShieldAlertIcon, FileTextIcon, TerminalIcon, CalendarIcon, PackageIcon, XIcon } from 'lucide-react'
+import { ActivityIcon, CpuIcon, LayersIcon, ZapIcon, InfoIcon, FileTextIcon, TerminalIcon, CalendarIcon, PackageIcon, XIcon, FilterIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -172,6 +172,23 @@ const Home = () => {
     const [workers, setWorkers] = useState<string>('5')
     const [selectedModel, setSelectedModel] = useState<string>('')
 
+    const [activeFilters, setActiveFilters] = useState<{
+        parameters: string;
+        capabilities: string;
+        size: string;
+    }>({
+        parameters: 'All',
+        capabilities: 'All',
+        size: 'All'
+    })
+
+    // Dynamically extract all unique capabilities from models
+    const allCapabilities = useMemo(() => {
+        return Array.from(new Set(
+            models.flatMap(m => m.extendedDetails?.capabilities || [])
+        )).sort()
+    }, [models])
+
     useEffect(() => {
         let mounted = true
         const fetchModels = async () => {
@@ -217,22 +234,46 @@ const Home = () => {
         })
     }
 
+    // Logic for filtering models
+    const filteredModels = models.filter(m => {
+        // Parameters Filter
+        if (activeFilters.parameters !== 'All') {
+            const pSize = parseFloat(m.details.parameter_size || '0')
+            if (activeFilters.parameters === '< 5B' && pSize >= 5) return false
+            if (activeFilters.parameters === '5B - 14B' && (pSize < 5 || pSize > 14)) return false
+            if (activeFilters.parameters === '> 14B' && pSize <= 14) return false
+        }
+
+        // Capabilities Filter
+        if (activeFilters.capabilities !== 'All') {
+            const caps = m.extendedDetails?.capabilities || []
+            if (!caps.includes(activeFilters.capabilities.toLowerCase())) return false
+        }
+
+        // Size Filter
+        if (activeFilters.size !== 'All') {
+            const gb = m.size / (1024 * 1024 * 1024)
+            if (activeFilters.size === '< 2 GB' && gb >= 2) return false
+            if (activeFilters.size === '2 GB - 10 GB' && (gb < 2 || gb > 10)) return false
+            if (activeFilters.size === '> 10 GB' && gb <= 10) return false
+        }
+
+        return true
+    })
+
     return (
         <div className="flex flex-col h-full w-full overflow-y-auto relative bg-background">
             {/* Aesthetic Background Blobs */}
-            <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-br from-primary/20 via-primary/5 to-transparent blur-[100px] pointer-events-none -z-10" />
-            <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-gradient-to-tl from-blue-500/10 via-purple-500/5 to-transparent blur-[120px] pointer-events-none -z-10" />
+            <div className="absolute top-0 left-0 w-full h-[500px] bg-linear-to-br from-primary/20 via-primary/5 to-transparent blur-[100px] pointer-events-none -z-10" />
+            <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-linear-to-tl from-blue-500/10 via-purple-500/5 to-transparent blur-[120px] pointer-events-none -z-10" />
 
-            <div className="container max-w-6xl mx-auto py-12 px-6 space-y-12 z-0 mt-8">
+            <div className="container mx-auto py-12 px-4 space-y-12 z-0 mt-8">
 
                 {/* Hero Section */}
                 <div className="space-y-4 text-center max-w-3xl mx-auto">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4 border border-primary/20 shadow-sm shadow-primary/10">
-                        <ZapIcon className="w-4 h-4" />
-                        <span>High-Concurrency Testing Engine</span>
-                    </div>
+
                     <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-foreground">
-                        Stress Test Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-600">Local LLMs</span>
+                        Stress Test Your <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-blue-600">Local LLMs</span>
                     </h1>
                     <p className="text-lg text-muted-foreground">
                         Deploy multiple parallel agent workers instantly. Real-time token streaming, zero-bottleneck architecture, built directly for Ollama.
@@ -316,7 +357,7 @@ const Home = () => {
                                     onClick={handleStartBenchmark}
                                     disabled={!selectedModel || !workers || isLoadingModels || models.length === 0}
                                     size="lg"
-                                    className="w-full h-14 text-base font-bold bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90 text-white shadow-md shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                    className="w-full h-14 text-base font-bold bg-linear-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90 text-white shadow-md shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
                                 >
                                     <ActivityIcon className="w-5 h-5 mr-2 animate-pulse" />
                                     Launch {workers ? workers : '0'} Workers
@@ -354,10 +395,81 @@ const Home = () => {
                                 <InfoIcon className="w-5 h-5 text-primary" />
                                 Model Library
                             </h2>
-                            <Badge variant="outline" className="text-muted-foreground font-normal border-primary/20 bg-primary/5 text-primary">
-                                {models.length} Models Available
+                            <Badge variant="outline" className="font-normal border-primary/20 bg-primary/5 text-primary">
+                                {filteredModels.length} of {models.length} Models
                             </Badge>
                         </div>
+
+                        {/* Interactive Filter Selects */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-3 px-1 mb-4">
+                            {/* Parameters Filter */}
+                            <div className="group space-y-2">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1 group-hover:text-primary transition-colors">Parameters</label>
+                                <Select value={activeFilters.parameters} onValueChange={(v) => setActiveFilters(p => ({ ...p, parameters: v }))}>
+                                    <SelectTrigger className="h-10 text-xs bg-muted/20 border-border/40 hover:border-primary/50 backdrop-blur-md font-bold transition-all shadow-sm ring-0 focus:ring-0">
+                                        <div className="flex items-center gap-2">
+                                            <div className={activeFilters.parameters !== 'All' ? "w-1.5 h-1.5 rounded-full bg-primary animate-pulse" : "w-1.5 h-1.5 rounded-full bg-muted-foreground/30"} />
+                                            <SelectValue placeholder="Any Params" />
+                                        </div>
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-background/95 backdrop-blur-xl border-border/40 rounded-xl shadow-2xl">
+                                        <SelectItem value="All" className="text-xs font-semibold py-2.5">Any Parameters</SelectItem>
+                                        <SelectItem value="< 5B" className="text-xs font-semibold py-2.5">&lt; 5B Params</SelectItem>
+                                        <SelectItem value="5B - 14B" className="text-xs font-semibold py-2.5">5B - 14B Params</SelectItem>
+                                        <SelectItem value="> 14B" className="text-xs font-semibold py-2.5">&gt; 14B Params</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Capabilities Filter */}
+                            <div className="group space-y-2">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1 group-hover:text-blue-500 transition-colors">Capabilities</label>
+                                <Select value={activeFilters.capabilities} onValueChange={(v) => setActiveFilters(p => ({ ...p, capabilities: v }))}>
+                                    <SelectTrigger className="h-10 text-xs bg-muted/20 border-border/40 hover:border-blue-500/50 backdrop-blur-md font-bold transition-all shadow-sm ring-0 focus:ring-0">
+                                        <div className="flex items-center gap-2">
+                                            <div className={activeFilters.capabilities !== 'All' ? "w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" : "w-1.5 h-1.5 rounded-full bg-muted-foreground/30"} />
+                                            <SelectValue placeholder="Any Cap" />
+                                        </div>
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-background/95 backdrop-blur-xl border-border/40 rounded-xl shadow-2xl">
+                                        <SelectItem value="All" className="text-xs font-semibold py-2.5">Any Capability</SelectItem>
+                                        {allCapabilities.map(cap => (
+                                            <SelectItem key={cap} value={cap} className="capitalize text-xs font-semibold py-2.5">{cap}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Size Filter */}
+                            <div className="group space-y-2">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1 group-hover:text-purple-500 transition-colors">Disk Footprint</label>
+                                <Select value={activeFilters.size} onValueChange={(v) => setActiveFilters(p => ({ ...p, size: v }))}>
+                                    <SelectTrigger className="h-10 text-xs bg-muted/20 border-border/40 hover:border-purple-500/50 backdrop-blur-md font-bold transition-all shadow-sm ring-0 focus:ring-0">
+                                        <div className="flex items-center gap-2">
+                                            <div className={activeFilters.size !== 'All' ? "w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" : "w-1.5 h-1.5 rounded-full bg-muted-foreground/30"} />
+                                            <SelectValue placeholder="Any Size" />
+                                        </div>
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-background/95 backdrop-blur-xl border-border/40 rounded-xl shadow-2xl">
+                                        <SelectItem value="All" className="text-xs font-semibold py-2.5">Any Size</SelectItem>
+                                        <SelectItem value="< 2 GB" className="text-xs font-semibold py-2.5">&lt; 2 GB (Tiny)</SelectItem>
+                                        <SelectItem value="2 GB - 10 GB" className="text-xs font-semibold py-2.5">2 GB - 10 GB (Standard)</SelectItem>
+                                        <SelectItem value="> 10 GB" className="text-xs font-semibold py-2.5">&gt; 10 GB (Large)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        {(activeFilters.parameters !== 'All' || activeFilters.capabilities !== 'All' || activeFilters.size !== 'All') && (
+                            <div className="flex justify-end px-1 -mt-2 mb-4">
+                                <button
+                                    onClick={() => setActiveFilters({ parameters: 'All', capabilities: 'All', size: 'All' })}
+                                    className="text-[10px] font-bold text-destructive hover:text-white hover:bg-destructive/10 px-2 py-1 rounded-sm transition-all flex items-center gap-1.5 uppercase tracking-tighter"
+                                >
+                                    <XIcon className="w-3 h-3" /> Clear Active Filters
+                                </button>
+                            </div>
+                        )}
 
                         {isLoadingModels ? (
                             <div className="space-y-3">
@@ -365,15 +477,22 @@ const Home = () => {
                                     <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse border border-border/50" />
                                 ))}
                             </div>
-                        ) : models.length === 0 ? (
-                            <div className="p-12 text-center border border-dashed border-border/60 rounded-xl bg-muted/10">
-                                <ShieldAlertIcon className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-                                <h3 className="text-base font-semibold text-foreground">No Models Found</h3>
-                                <p className="text-sm text-muted-foreground mt-1">Make sure Ollama is running locally and you have pulled at least one model.</p>
+                        ) : filteredModels.length === 0 ? (
+                            <div className="p-16 text-center border border-dashed border-border/60 rounded-xl bg-muted/10 flex flex-col items-center justify-center">
+                                <FilterIcon className="w-12 h-12 text-muted-foreground mb-4 opacity-30" />
+                                <h3 className="text-lg font-bold text-foreground">No matches found</h3>
+                                <p className="text-sm text-muted-foreground mt-2 max-w-[280px] mx-auto">Try adjusting your filters to find the right model for your test.</p>
+                                <Button
+                                    variant="link"
+                                    className="mt-4 text-primary font-bold"
+                                    onClick={() => setActiveFilters({ parameters: 'All', capabilities: 'All', size: 'All' })}
+                                >
+                                    Clear all filters
+                                </Button>
                             </div>
                         ) : (
                             <Accordion type="single" collapsible className="w-full space-y-2">
-                                {models.map((model) => (
+                                {filteredModels.map((model) => (
                                     <AccordionItem
                                         key={model.name}
                                         value={model.name}
@@ -382,7 +501,7 @@ const Home = () => {
                                         <AccordionTrigger className="hover:no-underline py-4">
                                             <div className="flex items-center justify-between w-full pr-4">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/10">
+                                                    <div className="w-10 h-10 rounded-full bg-linear-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/10">
                                                         <CpuIcon className="w-5 h-5 text-primary" />
                                                     </div>
                                                     <div className="flex flex-col items-start gap-1">

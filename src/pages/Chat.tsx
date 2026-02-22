@@ -1,6 +1,6 @@
 
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { SessionCard } from '@/components/SessionCard'
 import type { SessionConfig } from '@/components/SessionCard'
 import { listModels } from '@/lib/ollamaClient'
@@ -47,44 +47,56 @@ const Chat = () => {
         localStorage.setItem('ollama_default_config', JSON.stringify(defaultConfig))
     }, [defaultConfig])
 
+    const searchParams = Route.useSearch()
+    const autoStartedRef = useRef(false)
+
     useEffect(() => {
         let mounted = true
-        const fetchModels = async () => {
-            try {
-                const fetched = await listModels()
-                if (mounted) {
+
+        const initialize = async () => {
+            // 1. Fetch models if not already loaded or loading
+            if (models.length === 0 && isLoadingModels) {
+                try {
+                    const fetched = await listModels()
+                    if (!mounted) return
                     setModels(fetched)
                     setIsLoadingModels(false)
+
+                    // 2. Initial sync with URL params (auto-start)
+                    // We do this inside the same async flow to avoid cascading synchronous renders
+                    const workersCount = Number(searchParams.workers)
+                    if (fetched.length > 0 && workersCount > 0 && searchParams.model && !autoStartedRef.current && sessions.length === 0) {
+                        const newSessions: SessionConfig[] = Array.from({ length: workersCount }).map(() => ({
+                            id: nanoid(),
+                            model: searchParams.model || '',
+                            systemPromptId: defaultConfig.systemPromptId,
+                            personalityId: defaultConfig.personalityId,
+                            mode: defaultConfig.mode,
+                            initialPrompt: defaultConfig.prompt,
+                        }))
+                        setSessions(newSessions)
+                        autoStartedRef.current = true
+                    }
+                } catch (err) {
+                    console.error('Failed to load models:', err)
+                    if (mounted) setIsLoadingModels(false)
                 }
-            } catch (err) {
-                console.error('Failed to load models:', err)
-                if (mounted) setIsLoadingModels(false)
             }
         }
-        fetchModels()
+
+        initialize()
         return () => { mounted = false }
-    }, [])
-
-    const searchParams = Route.useSearch()
-    const [hasAutoStarted, setHasAutoStarted] = useState(false)
-
-    useEffect(() => {
-        if (!isLoadingModels && models.length > 0 && searchParams.workers && searchParams.model && !hasAutoStarted && sessions.length === 0) {
-            const workersCount = Number(searchParams.workers)
-            if (workersCount > 0) {
-                const newSessions: SessionConfig[] = Array.from({ length: workersCount }).map(() => ({
-                    id: nanoid(),
-                    model: searchParams.model || '',
-                    systemPromptId: defaultConfig.systemPromptId,
-                    personalityId: defaultConfig.personalityId,
-                    mode: defaultConfig.mode,
-                    initialPrompt: defaultConfig.prompt,
-                }))
-                setSessions(newSessions)
-                setHasAutoStarted(true)
-            }
-        }
-    }, [isLoadingModels, models, searchParams, hasAutoStarted, sessions.length, defaultConfig])
+    }, [
+        searchParams.workers,
+        searchParams.model,
+        sessions.length,
+        defaultConfig.systemPromptId,
+        defaultConfig.personalityId,
+        defaultConfig.mode,
+        defaultConfig.prompt,
+        models.length,
+        isLoadingModels
+    ])
 
     const handleAddSession = useCallback(() => {
         const newSession: SessionConfig = {
@@ -153,7 +165,7 @@ const Chat = () => {
     const activeCount = Object.values(streamingStatus).filter(s => s.isGenerating).length
 
     return (
-        <div className="flex flex-col h-full w-full overflow-hidden absolute inset-0 pt-14">
+        <div className="flex flex-col h-full w-full overflow-hidden absolute inset-0">
             {/* Kanban Header / Global Controls */}
             <div className="flex-none h-14 border-b border-border/40 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 flex items-center justify-between px-6 z-10">
                 <div className="flex items-center gap-4">
