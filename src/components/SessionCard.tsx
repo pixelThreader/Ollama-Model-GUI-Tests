@@ -177,6 +177,8 @@ function FillWatcher({ signal, mode }: { signal: number, mode?: 'stream' | 'gene
 }
 
 // Optimized Message component
+// During streaming: render raw text (zero parsing overhead, maximum paint speed)
+// After generation complete: render through Streamdown for full markdown formatting
 const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
     return (
         <Message from={message.role} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -199,7 +201,11 @@ const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
                         <ReasoningContent>{message.thinking}</ReasoningContent>
                     </Reasoning>
                 )}
-                <MessageResponse>{message.content}</MessageResponse>
+                {message.role === 'assistant' && message.isStreaming ? (
+                    <pre className="whitespace-pre-wrap wrap-break-word font-sans text-sm text-foreground leading-relaxed m-0">{message.content}<span className="inline-block w-1.5 h-4 bg-primary/70 animate-pulse ml-0.5 align-text-bottom rounded-sm" /></pre>
+                ) : (
+                    <MessageResponse>{message.content}</MessageResponse>
+                )}
             </MessageContent>
         </Message>
     )

@@ -6,75 +6,131 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { ActivityIcon, CpuIcon, LayersIcon, ZapIcon, InfoIcon, ShieldAlertIcon } from 'lucide-react'
+import { ActivityIcon, CpuIcon, LayersIcon, ZapIcon, InfoIcon, ShieldAlertIcon, FileTextIcon, TerminalIcon, CalendarIcon, PackageIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
-// Component to load and display extended details for a model
-const ModelDetailsView = ({ modelName }: { modelName: string }) => {
-    const [details, setDetails] = useState<ModelDetails | null>(null)
-    const [loading, setLoading] = useState(true)
-
-    useEffect(() => {
-        let mounted = true
-        showModel(modelName).then(data => {
-            if (mounted) {
-                setDetails(data)
-                setLoading(false)
-            }
-        }).catch(() => {
-            if (mounted) setLoading(false)
-        })
-        return () => { mounted = false }
-    }, [modelName])
-
-    if (loading) return <div className="p-4 text-sm text-muted-foreground animate-pulse">Loading model insights...</div>
-    if (!details) return <div className="p-4 text-sm text-destructive">Failed to load details.</div>
-
+// Component to display extended details for a model
+const ModelDetailsView = ({ details }: { details: ModelDetails }) => {
     return (
         <div className="space-y-4 p-4 bg-muted/20 rounded-md mt-2 border border-border/50">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                    <span className="text-muted-foreground block mb-1">Family</span>
-                    <span className="font-medium capitalize">{details.details.family || 'Unknown'}</span>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                <div className="space-y-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold">
+                        <PackageIcon className="w-3 h-3" /> Family
+                    </span>
+                    <span className="font-medium capitalize block truncate">{details.details.family || 'Unknown'}</span>
                 </div>
-                <div>
-                    <span className="text-muted-foreground block mb-1">Parameter Size</span>
-                    <span className="font-medium">{details.details.parameter_size || 'Unknown'}</span>
+                <div className="space-y-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold">
+                        <CpuIcon className="w-3 h-3" /> Parameters
+                    </span>
+                    <span className="font-medium block truncate text-primary">{details.details.parameter_size || 'Unknown'}</span>
                 </div>
-                <div>
-                    <span className="text-muted-foreground block mb-1">Format</span>
-                    <span className="font-medium uppercase">{details.details.format || 'Unknown'}</span>
+                <div className="space-y-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold">
+                        <FileTextIcon className="w-3 h-3" /> Format
+                    </span>
+                    <span className="font-medium block truncate uppercase">{details.details.format || 'Unknown'}</span>
                 </div>
-                <div>
-                    <span className="text-muted-foreground block mb-1">Quantization</span>
-                    <span className="font-medium uppercase">{details.details.quantization_level || 'Unknown'}</span>
+                <div className="space-y-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold">
+                        <LayersIcon className="w-3 h-3" /> Quantization
+                    </span>
+                    <span className="font-medium block truncate uppercase">{details.details.quantization_level || 'Unknown'}</span>
+                </div>
+                <div className="space-y-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold">
+                        <CalendarIcon className="w-3 h-3" /> Modified
+                    </span>
+                    <span className="font-medium block truncate">{new Date(details.modified_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </div>
+            </div>
+
+            <div className="space-y-3">
+                <span className="text-muted-foreground block text-[11px] uppercase tracking-wider font-semibold">Capabilities</span>
+                <div className="flex flex-wrap gap-2">
+                    {details.capabilities.map(cap => (
+                        <Badge key={cap} variant="outline" className="text-[10px] bg-muted capitalize">
+                            {cap}
+                        </Badge>
+                    ))}
                 </div>
             </div>
 
             {details.model_info && Object.keys(details.model_info).length > 0 && (
-                <div>
-                    <span className="text-muted-foreground block mb-2 text-sm">Capabilities & Info</span>
+                <div className="space-y-3">
+                    <span className="text-muted-foreground block text-[11px] uppercase tracking-wider font-semibold">Model Info</span>
                     <div className="flex flex-wrap gap-2">
-                        {details.model_info['general.architecture'] && (
-                            <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20">
+                        {Boolean(details.model_info['general.architecture']) && (
+                            <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 text-[10px]">
                                 Arch: {String(details.model_info['general.architecture'])}
                             </Badge>
                         )}
-                        {details.model_info['general.parameter_count'] && (
-                            <Badge variant="outline" className="border-primary/20">
+                        {Boolean(details.model_info['general.parameter_count']) && (
+                            <Badge variant="outline" className="border-primary/20 text-[10px]">
                                 Parameters: {(Number(details.model_info['general.parameter_count']) / 1e9).toFixed(1)}B
                             </Badge>
                         )}
                     </div>
                 </div>
             )}
+
+            <div className="pt-2 border-t border-border/30 flex justify-end">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 text-[11px] gap-1.5 font-semibold bg-background/50 hover:bg-background">
+                            <TerminalIcon className="w-3 h-3" /> View Modelfile & License
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="w-[90vw] max-w-6xl max-h-[90vh] flex flex-col p-0 gap-0 border-border/40 shadow-2xl bg-background/95 backdrop-blur-xl overflow-hidden">
+                        <DialogHeader className="p-6 border-b border-border/40 shrink-0">
+                            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+                                <TerminalIcon className="w-5 h-5 text-primary" />
+                                Model Specification: <span className="text-primary">{details.details.family}</span>
+                            </DialogTitle>
+                        </DialogHeader>
+
+                        <ScrollArea className="flex-1 overflow-y-auto">
+                            <div className="flex flex-col p-6 gap-8 pb-12">
+                                {/* Modelfile Section */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
+                                        <FileTextIcon className="w-4 h-4" /> Modelfile
+                                    </div>
+                                    <div className="rounded-xl border border-border/60 bg-black/40 p-6 relative group">
+                                        <pre className="text-sm font-mono text-blue-400 whitespace-pre-wrap leading-relaxed selection:bg-primary/30">
+                                            {details.modelfile || 'No modelfile available.'}
+                                        </pre>
+                                    </div>
+                                </div>
+
+                                {/* License Section */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground uppercase tracking-widest px-1">
+                                        <InfoIcon className="w-4 h-4" /> License Information
+                                    </div>
+                                    <div className="rounded-xl border border-border/60 bg-muted/30 p-6">
+                                        <div className="text-sm text-muted-foreground leading-loose italic selection:bg-primary/20 whitespace-pre-wrap">
+                                            {details.license || 'No license specified.'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </ScrollArea>
+                    </DialogContent>
+                </Dialog>
+            </div>
         </div>
     )
 }
 
+type ModelWithDetails = OllamaModel & { extendedDetails?: ModelDetails }
+
 const Home = () => {
     const navigate = useNavigate()
-    const [models, setModels] = useState<OllamaModel[]>([])
+    const [models, setModels] = useState<ModelWithDetails[]>([])
     const [isLoadingModels, setIsLoadingModels] = useState(true)
 
     const [workers, setWorkers] = useState<string>('5')
@@ -86,9 +142,22 @@ const Home = () => {
             try {
                 const fetched = await listModels()
                 if (mounted) {
-                    setModels(fetched)
-                    if (fetched.length > 0) {
-                        setSelectedModel(fetched[0].name)
+                    // Fetch extended details for all models in parallel
+                    const withDetails: ModelWithDetails[] = await Promise.all(
+                        fetched.map(async (m) => {
+                            try {
+                                const details = await showModel(m.name)
+                                return { ...m, extendedDetails: details }
+                            } catch (e) {
+                                console.warn(`Failed to fetch details for ${m.name}:`, e)
+                                return m
+                            }
+                        })
+                    )
+
+                    setModels(withDetails)
+                    if (withDetails.length > 0) {
+                        setSelectedModel(withDetails[0].name)
                     }
                     setIsLoadingModels(false)
                 }
@@ -156,9 +225,19 @@ const Home = () => {
                                         <Input
                                             type="number"
                                             min="1"
-                                            max="50"
+                                            max="15"
                                             value={workers}
-                                            onChange={(e) => setWorkers(e.target.value)}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === '') {
+                                                    setWorkers('');
+                                                    return;
+                                                }
+                                                const num = parseInt(val);
+                                                if (!isNaN(num)) {
+                                                    setWorkers(Math.min(15, Math.max(0, num)).toString());
+                                                }
+                                            }}
                                             className="bg-muted/50 border-border/50 focus-visible:ring-primary h-12 text-lg px-4"
                                             placeholder="e.g. 5"
                                         />
@@ -174,17 +253,21 @@ const Home = () => {
                                             onValueChange={setSelectedModel}
                                             disabled={isLoadingModels || models.length === 0}
                                         >
-                                            <SelectTrigger className="bg-muted/50 border-border/50 h-12 text-base px-4">
-                                                <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select a model"} />
+                                            <SelectTrigger className="bg-muted/50 border-border/50 h-auto min-h-16 py-5 text-base px-4 [&>span]:line-clamp-none w-full">
+                                                <div className="flex items-center gap-3 w-full text-left">
+                                                    <CpuIcon className="w-4 h-4 text-primary shrink-0" />
+                                                    <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select a model"} />
+                                                </div>
                                             </SelectTrigger>
-                                            <SelectContent>
+                                            <SelectContent className="max-h-[400px]">
                                                 {models.map(m => (
                                                     <SelectItem key={m.name} value={m.name} className="py-3 cursor-pointer">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-medium text-foreground">{m.name}</span>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {(m.size / 1024 / 1024 / 1024).toFixed(1)} GB • {m.details.parameter_size}
-                                                            </span>
+                                                        <div className="flex flex-col items-start gap-1">
+                                                            <span className="font-bold text-foreground leading-none">{m.name}</span>
+                                                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                                                                <span className="bg-muted-foreground/10 px-1.5 py-0.5 rounded">{(m.size / 1024 / 1024 / 1024).toFixed(1)} GB</span>
+                                                                <span className="bg-muted-foreground/10 px-1.5 py-0.5 rounded">{m.details.parameter_size}</span>
+                                                            </div>
                                                         </div>
                                                     </SelectItem>
                                                 ))}
@@ -277,7 +360,11 @@ const Home = () => {
                                             </div>
                                         </AccordionTrigger>
                                         <AccordionContent className="pb-4 pt-1">
-                                            <ModelDetailsView modelName={model.name} />
+                                            {model.extendedDetails ? (
+                                                <ModelDetailsView details={model.extendedDetails} />
+                                            ) : (
+                                                <div className="p-4 text-sm text-destructive">Metadata unavailable.</div>
+                                            )}
                                         </AccordionContent>
                                     </AccordionItem>
                                 ))}

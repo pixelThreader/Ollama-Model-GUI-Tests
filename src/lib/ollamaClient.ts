@@ -140,6 +140,7 @@ export interface ModelDetails {
         quantization_level: string
     }
     model_info: Record<string, unknown>
+    modelfile: string
 }
 
 export interface EmbedResponse {

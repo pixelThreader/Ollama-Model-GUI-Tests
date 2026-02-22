@@ -156,7 +156,7 @@ async function startStream(id: string, payload: ChatPayload) {
                                 evalDuration: chunk.eval_duration ?? 0,
                             },
                         })
-                    } else if (now - lastPostTime > 100) {
+                    } else if (now - lastPostTime > 20) {
                         lastPostTime = now
                         self.postMessage({
                             id,
