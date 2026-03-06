@@ -37,6 +37,8 @@ export interface ChatOptions {
     format?: 'json' | Record<string, unknown>
     /** AbortSignal so the caller can cancel mid-stream */
     signal?: AbortSignal
+    /** Keep the model loaded in memory after response (-1 = indefinite, undefined = Ollama default 5min) */
+    keepAlive?: boolean
 }
 
 export interface GenerateOptions {
@@ -47,6 +49,8 @@ export interface GenerateOptions {
     options?: Record<string, unknown>
     format?: 'json' | Record<string, unknown>
     signal?: AbortSignal
+    /** Keep the model loaded in memory after response */
+    keepAlive?: boolean
 }
 
 export interface StructuredOutputOptions<T = unknown> {
@@ -232,7 +236,7 @@ export async function* streamChat(
         model: opts.model,
         messages: buildMessages(opts),
         stream: true,
-        keep_alive: -1,
+        ...(opts.keepAlive === true ? { keep_alive: -1 } : {}),
         ...(opts.format ? { format: isStructured ? (opts.format as Record<string, unknown>) : opts.format } : {}),
         ...(opts.options ? { options: opts.options } : {}),
     })

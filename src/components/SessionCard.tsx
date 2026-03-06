@@ -55,6 +55,8 @@ export type SessionConfig = {
     personalityId: string
     mode: 'stream' | 'generate' | 'structured'
     initialPrompt?: string
+    numCtx?: number
+    keepAlive?: boolean
 }
 
 /** Full session state — kept internally by each SessionCard */
@@ -493,6 +495,12 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
         const personality = PERSONALITIES[c.personalityId as keyof typeof PERSONALITIES]?.prompt || ''
 
         // Fire the worker — no onmessage re-assignment, handler is already set
+        // Build options with num_ctx if configured
+        const workerOptions: Record<string, unknown> = {}
+        if (c.numCtx && c.numCtx > 0) {
+            workerOptions.num_ctx = c.numCtx
+        }
+
         workerRef.current!.postMessage({
             id: c.id,
             action: 'start',
@@ -504,6 +512,8 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                 personality,
                 history,
                 format: c.mode === 'structured' ? 'json' : undefined,
+                options: Object.keys(workerOptions).length > 0 ? workerOptions : undefined,
+                keepAlive: c.keepAlive,
             }
         })
     }, [])

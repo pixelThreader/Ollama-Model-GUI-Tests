@@ -16,6 +16,7 @@ interface ChatPayload {
     images?: string[]
     options?: Record<string, unknown>
     format?: string | Record<string, unknown>
+    keepAlive?: boolean
 }
 
 interface WorkerMessage {
@@ -83,7 +84,10 @@ async function startStream(id: string, payload: ChatPayload) {
             model: payload.model,
             messages,
             stream: true,
-            keep_alive: -1,
+        }
+        // keep_alive: -1 = keep loaded indefinitely, omitted = Ollama default (5 min)
+        if (payload.keepAlive === true) {
+            body.keep_alive = -1
         }
         if (payload.format) body.format = payload.format
         if (payload.options) body.options = payload.options

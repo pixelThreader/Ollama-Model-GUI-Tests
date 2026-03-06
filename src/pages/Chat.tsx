@@ -45,6 +45,8 @@ const Chat = () => {
             personalityId: 'neutral',
             mode: 'stream' as const,
             prompt: '',
+            numCtx: 4096,
+            keepAlive: true,
         }
     })
 
@@ -78,6 +80,8 @@ const Chat = () => {
                             personalityId: defaultConfig.personalityId,
                             mode: defaultConfig.mode,
                             initialPrompt: defaultConfig.prompt,
+                            numCtx: defaultConfig.numCtx,
+                            keepAlive: defaultConfig.keepAlive,
                         }))
                         setSessions(newSessions)
                         autoStartedRef.current = true
@@ -99,6 +103,8 @@ const Chat = () => {
         defaultConfig.personalityId,
         defaultConfig.mode,
         defaultConfig.prompt,
+        defaultConfig.numCtx,
+        defaultConfig.keepAlive,
         models.length,
         isLoadingModels
     ])
@@ -111,6 +117,8 @@ const Chat = () => {
             personalityId: defaultConfig.personalityId,
             mode: defaultConfig.mode,
             initialPrompt: defaultConfig.prompt,
+            numCtx: defaultConfig.numCtx,
+            keepAlive: defaultConfig.keepAlive,
         }
         setSessions((prev) => [...prev, newSession])
     }, [defaultConfig, models])
