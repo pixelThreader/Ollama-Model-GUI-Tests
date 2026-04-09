@@ -35,7 +35,7 @@ import { SYSTEM_PROMPTS, PERSONALITIES, systemPromptList, personalityList } from
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
-import { XIcon, Trash2Icon, PlayIcon, TimerIcon, ImageIcon } from 'lucide-react'
+import { XIcon, Trash2Icon, PlayIcon, TimerIcon, ImageIcon, Brain } from 'lucide-react'
 import { generateRandomPrompt } from '@/lib/dummy'
 
 export type ChatMessage = {
@@ -57,6 +57,7 @@ export type SessionConfig = {
     initialPrompt?: string
     numCtx?: number
     keepAlive?: boolean
+    disableThinking?: boolean
 }
 
 /** Full session state — kept internally by each SessionCard */
@@ -104,6 +105,19 @@ function ImagePickerButton({ disabled }: { disabled?: boolean }) {
             tooltip="Upload images"
         >
             <ImageIcon className="h-4 w-4" />
+        </PromptInputButton>
+    )
+}
+
+function ThinkingToggleButton({ disabled, checked, onToggle }: { disabled?: boolean, checked: boolean, onToggle: () => void }) {
+    return (
+        <PromptInputButton
+            disabled={disabled}
+            onClick={onToggle}
+            tooltip={checked ? "Disable thinking" : "Enable thinking"}
+            variant={checked ? "default" : "ghost"}
+        >
+            <Brain className="h-4 w-4" />
         </PromptInputButton>
     )
 }
@@ -181,7 +195,7 @@ function FillWatcher({ signal, mode }: { signal: number, mode?: 'stream' | 'gene
 // Optimized Message component
 // During streaming: render raw text (zero parsing overhead, maximum paint speed)
 // After generation complete: render through Streamdown for full markdown formatting
-const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
+const MemoizedMessage = memo(({ message, disableThinking }: { message: ChatMessage, disableThinking: boolean }) => {
     return (
         <Message from={message.role} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <MessageContent>
@@ -215,6 +229,7 @@ const MemoizedMessage = memo(({ message }: { message: ChatMessage }) => {
 MemoizedMessage.displayName = 'MemoizedMessage'
 
 const visionCapabilityCache: Record<string, boolean> = {}
+const thinkingCapabilityCache: Record<string, boolean> = {}
 
 /**
  * SessionCard now manages its OWN streaming state (messages, stats, isGenerating).
@@ -389,13 +404,17 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
     }, [messages])
 
     const [hasVision, setHasVision] = useState(false)
+    const [hasThinking, setHasThinking] = useState(false)
 
     useEffect(() => {
         let mounted = true
 
-        const checkVision = async () => {
+        const checkCapabilities = async () => {
             if (!config.model) {
-                if (mounted) setHasVision(false)
+                if (mounted) {
+                    setHasVision(false)
+                    setHasThinking(false)
+                }
                 return
             }
 
@@ -403,20 +422,32 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
             const low = config.model.toLowerCase()
             if (low.includes('llava') || low.includes('moondream') || low.includes('vision') || low.includes('minicpm')) {
                 if (mounted) setHasVision(true)
+            } else {
+                if (mounted) setHasVision(false)
+            }
+            if (low.includes('deepseek') || low.includes('o1') || low.includes('reasoning')) {
+                if (mounted) setHasThinking(true)
                 return
             }
 
             // Then check tags if they exist
             const selected = models.find(m => m.name === config.model)
-            const inTags = selected?.details?.families?.includes('vision') || false
-            if (inTags) {
+            const inTagsVision = selected?.details?.families?.includes('vision') || false
+            const inTagsThinking = selected?.details?.families?.includes('thinking') || false
+            if (inTagsVision) {
                 if (mounted) setHasVision(true)
+            }
+            if (inTagsThinking) {
+                if (mounted) setHasThinking(true)
                 return
             }
 
             // Return cached value if any
             if (config.model in visionCapabilityCache) {
                 if (mounted) setHasVision(visionCapabilityCache[config.model] || false)
+            }
+            if (config.model in thinkingCapabilityCache) {
+                if (mounted) setHasThinking(thinkingCapabilityCache[config.model] || false)
                 return
             }
 
@@ -425,14 +456,24 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                 const isVision = details.details?.families?.includes('vision') ||
                     details.capabilities?.includes('vision') ||
                     false
+                const isThinking = details.details?.families?.includes('thinking') ||
+                    details.capabilities?.includes('thinking') ||
+                    false
                 visionCapabilityCache[config.model] = isVision
-                if (mounted) setHasVision(isVision)
+                thinkingCapabilityCache[config.model] = isThinking
+                if (mounted) {
+                    setHasVision(isVision)
+                    setHasThinking(isThinking)
+                }
             } catch {
-                if (mounted) setHasVision(false)
+                if (mounted) {
+                    setHasVision(false)
+                    setHasThinking(false)
+                }
             }
         }
 
-        checkVision()
+        checkCapabilities()
 
         return () => { mounted = false }
     }, [config.model, models])
@@ -500,13 +541,14 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
         if (c.numCtx && c.numCtx > 0) {
             workerOptions.num_ctx = c.numCtx
         }
+        workerOptions.think = !c.disableThinking
 
         workerRef.current!.postMessage({
             id: c.id,
             action: 'start',
             payload: {
                 model: c.model,
-                prompt: msg.text,
+                prompt: c.disableThinking ? "Do not think step by step. " + msg.text : msg.text,
                 images: apiImages.length > 0 ? apiImages : undefined,
                 systemPrompt,
                 personality,
@@ -614,7 +656,7 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                     </div>
                 ) : (
                     messages.map((msg) => (
-                        <MemoizedMessage key={msg.id} message={msg} />
+                        <MemoizedMessage key={msg.id} message={msg} disableThinking={config.disableThinking || false} />
                     ))
                 )}
             </CardContent>
@@ -651,6 +693,13 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                                 <PromptInputTools className="flex-1 w-full">
                                     {isVisionModel && (
                                         <ImagePickerButton disabled={isGenerating} />
+                                    )}
+                                    {hasThinking && (
+                                        <ThinkingToggleButton
+                                            disabled={isGenerating}
+                                            checked={!(config.disableThinking || false)}
+                                            onToggle={() => onUpdateConfig(config.id, { disableThinking: !config.disableThinking })}
+                                        />
                                     )}
                                 </PromptInputTools>
                                 <PromptInputSubmit

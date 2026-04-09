@@ -1,16 +1,16 @@
 
-import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { SessionCard } from '@/components/SessionCard'
-import type { SessionConfig } from '@/components/SessionCard'
-import { listModels } from '@/lib/ollamaClient'
-import type { OllamaModel, StreamDoneStats } from '@/lib/ollamaClient'
-import { Button } from '@/components/ui/button'
-import { PlusIcon, LayersIcon } from 'lucide-react'
-import { nanoid } from 'nanoid'
-import { ActiveModelsModal } from '@/components/ActiveModelsModal'
-import { SendIcon, SparklesIcon } from 'lucide-react'
-import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConfigModal'
+import { createFileRoute } from '@tanstack/react-router';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { SessionCard } from '@/components/SessionCard';
+import type { SessionConfig } from '@/components/SessionCard';
+import { listModels } from '@/lib/ollamaClient';
+import type { OllamaModel, StreamDoneStats } from '@/lib/ollamaClient';
+import { Button } from '@/components/ui/button';
+import { PlusIcon, LayersIcon } from 'lucide-react';
+import { nanoid } from 'nanoid';
+import { ActiveModelsModal } from '@/components/ActiveModelsModal';
+import { SendIcon, SparklesIcon } from 'lucide-react';
+import { DefaultConfigModal, type DefaultConfig } from '@/components/DefaultConfigModal';
 
 type ChatSearch = {
     workers?: number
