@@ -195,7 +195,11 @@ function FillWatcher({ signal, mode }: { signal: number, mode?: 'stream' | 'gene
 // Optimized Message component
 // During streaming: render raw text (zero parsing overhead, maximum paint speed)
 // After generation complete: render through Streamdown for full markdown formatting
-const MemoizedMessage = memo(({ message, disableThinking }: { message: ChatMessage, disableThinking: boolean }) => {
+interface MemoizedMessageProps {
+    message: ChatMessage
+}
+
+const MemoizedMessage = memo(({ message }: MemoizedMessageProps) => {
     return (
         <Message from={message.role} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <MessageContent>
@@ -656,7 +660,7 @@ export const SessionCard = memo(({ config, models, onUpdateConfig, onRemove, onI
                     </div>
                 ) : (
                     messages.map((msg) => (
-                        <MemoizedMessage key={msg.id} message={msg} disableThinking={config.disableThinking || false} />
+                        <MemoizedMessage key={msg.id} message={msg} />
                     ))
                 )}
             </CardContent>
