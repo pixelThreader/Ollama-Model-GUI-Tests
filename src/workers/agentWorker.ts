@@ -90,7 +90,17 @@ async function startStream(id: string, payload: ChatPayload) {
             body.keep_alive = -1
         }
         if (payload.format) body.format = payload.format
-        if (payload.options) body.options = payload.options
+        if (payload.options) {
+            // Extract think from options
+            const { think, ...cleanOptions } = payload.options
+            if (Object.keys(cleanOptions).length > 0) {
+                body.options = cleanOptions
+            }
+            // Set think directly on body (not in options)
+            if (typeof think === 'boolean') {
+                body.think = think
+            }
+        }
 
         // Direct raw fetch — no SDK, no middleware, pure parallel
         const response = await fetch(`${OLLAMA_BASE}/api/chat`, {
